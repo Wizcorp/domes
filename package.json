@@ -1,0 +1,22 @@
+{
+  "name": "domes",
+  "version": "0.1.0",
+  "description": "Evented data manager",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "evented",
+    "data",
+    "domes",
+    "tomes",
+    "dome",
+    "tome"
+  ],
+  "author": "Ron Korving <rkorving@wizcorp.jp>",
+  "license": "MIT",
+  "dependencies": {
+    "clone": "^1.0.2"
+  }
+}
