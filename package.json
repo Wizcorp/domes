@@ -12,7 +12,8 @@
     "domes",
     "tomes",
     "dome",
-    "tome"
+    "tome",
+    "diff"
   ],
   "author": "Ron Korving <rkorving@wizcorp.jp>",
   "license": "MIT",

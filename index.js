@@ -24,6 +24,17 @@ var ops = {
 		obj[key] = args[0];
 		return args[0];
 	},
+	del: function (obj, key) {
+		var value = obj[key];
+
+		if (Array.isArray(obj)) {
+			obj.splice(key, 1);
+		} else {
+			delete obj[key];
+		}
+
+		return value;
+	},
 	inc: function (obj, key, args) {
 		if (typeof obj[key] !== 'number') {
 			throw new TypeError('Cannot increment type "' + (typeof obj[key]) + '"');
@@ -56,6 +67,21 @@ var ops = {
 		obj[key] -= value;
 		return obj[key];
 	},
+	append: function (obj, key, args) {
+		// appends all given args to an array or string
+		var value = obj[key];
+
+		if (typeof value === 'string') {
+			value += args.join('');
+		} else if (Array.isArray(value)) {
+			value = value.concat(args);
+		} else {
+			throw new TypeError('Can only append to strings and arrays');
+		}
+
+		obj[key] = value;
+		return value;
+	},
 	fill: function (obj, key, args) {
 		var arr = obj[key];
 		if (!Array.isArray(arr)) {
@@ -79,14 +105,6 @@ var ops = {
 
 		return obj[key].pop();
 	},
-	splice: function (obj, key, args) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
-			throw new TypeError('Can only splice arrays');
-		}
-
-		return arr.splice.apply(arr, args);
-	},
 	shift: function (obj, key) {
 		var arr = obj[key];
 		if (!Array.isArray(arr)) {
@@ -103,6 +121,14 @@ var ops = {
 
 		return arr.unshift.apply(arr, args);
 	},
+	splice: function (obj, key, args) {
+		var arr = obj[key];
+		if (!Array.isArray(arr)) {
+			throw new TypeError('Can only splice arrays');
+		}
+
+		return arr.splice.apply(arr, args);
+	},
 	reverse: function (obj, key) {
 		var arr = obj[key];
 		if (!Array.isArray(arr)) {
@@ -117,27 +143,7 @@ var ops = {
 			throw new TypeError('Can only sort arrays');
 		}
 
-		var fn = args[0];
-		if (!fn) {
-			return arr.sort();
-		}
-
-		if (typeof fn !== 'function') {
-			throw new TypeError('The given sort function is type: "' + (typeof fn) + '"');
-		}
-
-		return arr.sort(fn);
-	},
-	del: function (obj, key) {
-		var value = obj[key];
-
-		if (Array.isArray(obj)) {
-			obj.splice(key, 1);
-		} else {
-			delete obj[key];
-		}
-
-		return value;
+		return arr.sort();
 	}
 };
 
@@ -175,6 +181,16 @@ function traverse(dome, opName, path, args, options) {
 		throw new Error('Operation not implemented: ' + opName);
 	}
 
+	if (typeof path !== 'string') {
+		throw new TypeError('Path must be a string');
+	}
+
+	path = path.trim();
+
+	if (path.length === 0) {
+		throw new Error('Empty path provided');
+	}
+
 	var obj = dome.target;
 	var chunks = parsePath(path);
 
@@ -199,6 +215,8 @@ function traverse(dome, opName, path, args, options) {
 
 	chunk = chunks[chunks.length - 1];
 
+	var oldValue = obj[chunk];
+
 	var result = opFn(obj, chunk, args);
 
 	if ((options & OPT_ADD_DIFF) !== 0) {
@@ -206,8 +224,15 @@ function traverse(dome, opName, path, args, options) {
 	}
 
 	if ((options & OPT_EMIT_CHANGE) !== 0) {
-		// emits: full path, new value at path, { op: opName, result: opResult }
-		dome.emit('change', path, obj[chunk], { op: opName, result: result });
+		// emits: path, new value at path, { op: opName, result: opResult }
+		var newValue = obj[chunk];
+		var opData = {
+			op: opName,
+			result: result
+		};
+
+		dome.emit('change', path, newValue, oldValue, opData);
+		dome.emit('change:' + path, newValue, oldValue, opData);
 	}
 
 	return result;
@@ -234,6 +259,7 @@ Dome.prototype.toJSON = function () {
 
 
 Dome.prototype.destroy = function () {
+	this.removeAllListeners();
 	this.target = null;
 	this.snapshots = null;
 	this.diff = null;
@@ -257,13 +283,6 @@ Dome.prototype.extractDiff = function () {
 };
 
 
-Dome.prototype.addDiff = function (opName, path, args) {
-	var diff = [opName, path, args];
-	this.diff.push(diff);
-	this.emit('diff', diff);
-};
-
-
 Dome.prototype.applyDiff = function (diff) {
 	for (var i = 0; i < diff.length; i += 1) {
 		var item = diff[i];  // op-name, path, args
@@ -273,27 +292,47 @@ Dome.prototype.applyDiff = function (diff) {
 };
 
 
+Dome.prototype.addDiff = function (opName, path, args) {
+	this.diff.push([opName, path, args]);
+	this.emit('diff', opName, path, args);
+};
+
+
 Dome.prototype.snapshot = function () {
 	this.snapshots.push({
 		target: clone(this.target),
 		diff: clone(this.diff)
 	});
+	this.emit('snapshot');
 };
 
 
 Dome.prototype.rollback = function () {
 	var snapshot = this.snapshots.pop();
+	if (!snapshot) {
+		throw new Error('There are no snapshots to roll back to');
+	}
+
 	this.target = snapshot.target;
 	this.diff = snapshot.diff;
 	this.emit('rollback');
 };
 
 
-Dome.prototype.createClient = function (path) {
-	var client = new Dome(this.get(path));
-	client.on('diff', function (diff) {
-		this.addDiff(diff[0], path + diff[1], diff[2]);
+Dome.prototype.wrap = function (clientPath) {
+	var client = new Dome(this.get(clientPath));
+	var parent = this;
+
+	client.on('diff', function (opName, path, args) {
+		var fullPath = clientPath;
+		if (path) {
+			// we check the target type each time, because it may have changed
+			fullPath += typeof client.target === 'object' ? '.' + path : path;
+		}
+
+		parent.addDiff(opName, fullPath, args);
 	});
+
 	return client;
 };
 
@@ -309,12 +348,25 @@ Dome.prototype.set = function (path, value) {
 	return traverse(this, 'set', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
+Dome.prototype.del = function (path) {
+	return traverse(this, 'del', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+};
+
 Dome.prototype.inc = function (path, value) {
 	return traverse(this, 'inc', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.dec = function (path, value) {
 	return traverse(this, 'dec', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+};
+
+Dome.prototype.append = function (path) {
+	var args = new Array(arguments.length - 1);
+	for (var i = 1; i < arguments.length; i += 1) {
+		args[i - 1] = arguments[i];
+	}
+
+	return traverse(this, 'append', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.fill = function (path) {
@@ -334,15 +386,6 @@ Dome.prototype.pop = function (path) {
 	return traverse(this, 'pop', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
-Dome.prototype.splice = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = arguments[i];
-	}
-
-	return traverse(this, 'splice', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
 Dome.prototype.shift = function (path) {
 	return traverse(this, 'shift', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
@@ -356,14 +399,19 @@ Dome.prototype.unshift = function (path) {
 	return traverse(this, 'shift', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
+Dome.prototype.splice = function (path) {
+	var args = new Array(arguments.length - 1);
+	for (var i = 1; i < arguments.length; i += 1) {
+		args[i - 1] = arguments[i];
+	}
+
+	return traverse(this, 'splice', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+};
+
 Dome.prototype.reverse = function (path) {
 	return traverse(this, 'reverse', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
-Dome.prototype.sort = function (path, fn) {
-	return traverse(this, 'sort', path, [fn], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.del = function (path) {
-	return traverse(this, 'del', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+Dome.prototype.sort = function (path) {
+	return traverse(this, 'sort', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
