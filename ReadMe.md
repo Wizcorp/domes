@@ -27,13 +27,17 @@ npm install domes --save
 ```
 
 
-## Usage
+## Example usage
 
 ```js
 var dome = require('domes');
 var myObject = { hello: 'world' };
 
-var myDome = dome(myObject);
+var d = dome(myObject);
+d.set('hello.world.foo.bar', { a: { whole: { new: 'world' } } });
+d.get('hello.world.foo.bar.a.whole.new'); // returns 'world'
+d.set('list', []);
+d.push('list', 'item1', 'item2');
 ```
 
 

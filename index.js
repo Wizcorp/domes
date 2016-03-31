@@ -1,5 +1,6 @@
 // Data Object Management E..something
 
+var clone = require('clone');
 var EventEmitter = require('events').EventEmitter;
 
 function inherits(Child, Parent) {
@@ -220,7 +221,7 @@ function traverse(dome, opName, path, args, options) {
 	var result = opFn(obj, chunk, args);
 
 	if ((options & OPT_ADD_DIFF) !== 0) {
-		dome.addDiff(opName, path, args);
+		dome.addDiff(opName, path, clone(args));
 	}
 
 	if ((options & OPT_EMIT_CHANGE) !== 0) {
@@ -240,6 +241,8 @@ function traverse(dome, opName, path, args, options) {
 
 
 function Dome(target) {
+	EventEmitter.call(this);
+
 	this.target = target || {};
 	this.snapshots = [];
 	this.diff = [];
@@ -289,6 +292,8 @@ Dome.prototype.applyDiff = function (diff) {
 
 		traverse(this, item[0], item[1], item[2], OPT_EMIT_CHANGE);
 	}
+
+	diff.length = 0;
 };
 
 
@@ -345,7 +350,7 @@ Dome.prototype.get = function (path, fallback) {
 };
 
 Dome.prototype.set = function (path, value) {
-	return traverse(this, 'set', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'set', path, [clone(value)], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.del = function (path) {
@@ -366,7 +371,7 @@ Dome.prototype.append = function (path) {
 		args[i - 1] = arguments[i];
 	}
 
-	return traverse(this, 'append', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'append', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.fill = function (path) {
@@ -375,11 +380,16 @@ Dome.prototype.fill = function (path) {
 		args[i - 1] = arguments[i];
 	}
 
-	return traverse(this, 'fill', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'fill', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
-Dome.prototype.push = function (path, value) {
-	return traverse(this, 'push', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+Dome.prototype.push = function (path) {
+	var args = new Array(arguments.length - 1);
+	for (var i = 1; i < arguments.length; i += 1) {
+		args[i - 1] = arguments[i];
+	}
+
+	return traverse(this, 'push', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.pop = function (path) {
@@ -396,7 +406,7 @@ Dome.prototype.unshift = function (path) {
 		args[i - 1] = arguments[i];
 	}
 
-	return traverse(this, 'shift', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'shift', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.splice = function (path) {
@@ -405,7 +415,7 @@ Dome.prototype.splice = function (path) {
 		args[i - 1] = arguments[i];
 	}
 
-	return traverse(this, 'splice', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'splice', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.reverse = function (path) {
