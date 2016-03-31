@@ -221,6 +221,7 @@ A diff entry was added because of a mutation. The operation is described by `opN
 
 This creates a dome from a path on an existing dome. They will remain connected, so any changes that you make on the
 child dome will automatically be added to the diff in the parent dome. The child will also keep its own diff state.
+Changes made on the child dome will also be emitted as change events on the parent.
 
 
 ### Other
