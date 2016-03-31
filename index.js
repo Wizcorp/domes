@@ -150,26 +150,43 @@ var ops = {
 
 
 function parsePath(path) {
-	var index, chunks = [];
+	if (Array.isArray(path)) {
+		return path;
+	}
 
-	// TODO: drop path.slice, and use offsets with substrings
+	var index, type, chunks = [];
+	var offset = 0;
 
-	while (path) {
-		var index = path.search(/[\.\[\]]/);
-		if (index === -1) {
-			// last chunk reached
+	while (offset < path.length) {
+		if (path[offset] === '[') {
+			// array element begins here
 
-			chunks.push(path);
-			break;
-		}
+			offset += 1;
 
-		if (path[index] === ']') {
-			chunks.push(parseInt(path.substr(0, index)));
+			index = path.indexOf(']', offset);
+			if (index === -1) {
+				throw new Error('Could not find closing "]" in path: ' + path);
+			}
+
+			chunks.push(parseInt(path.substring(offset, index), 10));
+			offset = index + 1;
 		} else {
-			chunks.push(path.substr(0, index));
-		}
+			// a period is optional at the start of the path or after an array element
 
-		path = path.slice(index + 1);
+			if (path[offset] === '.') {
+				offset += 1;
+			}
+
+			// find "." or "["
+
+			index = offset;
+			while (index < path.length && path[index] !== '.' && path[index] !== '[') {
+				index += 1;
+			}
+
+			chunks.push(path.substring(offset, index));
+			offset = index;
+		}
 	}
 
 	return chunks;
@@ -251,8 +268,22 @@ function Dome(target) {
 inherits(Dome, EventEmitter);
 
 
-module.exports = function (obj) {
-	return new Dome(obj);
+Dome.joinPaths = function (a, b) {
+	if (b.length === 0) {
+		return a;
+	}
+
+	if (a.length === 0) {
+		return b;
+	}
+
+	if (b[0] === '[') {
+		// array notation can just be appended
+		return a + b;
+	}
+
+	// b starts with a property name
+	return a + '.' + b;
 };
 
 
@@ -324,18 +355,12 @@ Dome.prototype.rollback = function () {
 };
 
 
-Dome.prototype.wrap = function (clientPath) {
-	var client = new Dome(this.get(clientPath));
+Dome.prototype.wrap = function (path) {
+	var client = new Dome(this.get(path));
 	var parent = this;
 
-	client.on('diff', function (opName, path, args) {
-		var fullPath = clientPath;
-		if (path) {
-			// we check the target type each time, because it may have changed
-			fullPath += typeof client.target === 'object' ? '.' + path : path;
-		}
-
-		parent.addDiff(opName, fullPath, args);
+	client.on('diff', function (opName, subPath, args) {
+		parent.addDiff(opName, Dome.joinPaths(path, subPath), args);
 	});
 
 	return client;
@@ -424,4 +449,9 @@ Dome.prototype.reverse = function (path) {
 
 Dome.prototype.sort = function (path) {
 	return traverse(this, 'sort', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+};
+
+
+module.exports = function (obj) {
+	return new Dome(obj);
 };
