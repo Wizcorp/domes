@@ -154,7 +154,7 @@ var ops = {
 
 		return arr.reverse();
 	},
-	sort: function (obj, key, args) {
+	sort: function (obj, key) {
 		var arr = obj[key];
 		if (!Array.isArray(arr)) {
 			throw new TypeError('Can only sort arrays');
@@ -170,7 +170,7 @@ function parsePath(path) {
 		return path;
 	}
 
-	var index, type, chunks = [];
+	var index, chunks = [];
 	var offset = 0;
 
 	while (offset < path.length) {
@@ -210,6 +210,8 @@ function parsePath(path) {
 
 
 function traverse(dome, opName, path, args, options) {
+	var oldValue;
+
 	var opFn = ops[opName];
 	if (!opFn) {
 		throw new Error('Operation not implemented: ' + opName);
@@ -227,14 +229,19 @@ function traverse(dome, opName, path, args, options) {
 
 	var obj = dome.target;
 	var chunks = parsePath(path);
+	var chunk;
 
 	for (var i = 0; i < chunks.length - 1; i += 1) {
-		var chunk = chunks[i];
+		chunk = chunks[i];
 		var value = obj[chunk];
 
 		if (!value || typeof value !== 'object') {
+			if (opFn === ops.has) {
+				return false;
+			}
+
 			if (opFn === ops.get) {
-				return args[0]; // fallback
+				return args[0]; // fallback or undefined
 			}
 
 			if (typeof chunks[i + 1] === 'number') {
@@ -249,16 +256,25 @@ function traverse(dome, opName, path, args, options) {
 
 	chunk = chunks[chunks.length - 1];
 
-	var oldValue = obj[chunk];
+	// check if we should emit or diff
 
-	var result = opFn(obj, chunk, args);
+	var mustEmit =
+		(options & OPT_EMIT_CHANGE) !== 0 &&
+		(dome.listenerCount('change') !== 0 || dome.listenerCount('change:' + path) !== 0);
 
-	if ((options & OPT_ADD_DIFF) !== 0) {
+	var mustDiff = (options & OPT_ADD_DIFF) !== 0;
+
+	if (mustEmit) {
+		oldValue = clone(obj[chunk]);
+	}
+
+	if (mustDiff) {
 		dome.addDiff(opName, path, clone(args));
 	}
 
-	if ((options & OPT_EMIT_CHANGE) !== 0) {
-		// emits: path, new value at path, { op: opName, result: opResult }
+	var result = opFn(obj, chunk, args);
+
+	if (mustEmit) {
 		var newValue = obj[chunk];
 		var opData = {
 			op: opName,
@@ -310,9 +326,9 @@ Dome.prototype.toJSON = function () {
 
 Dome.prototype.destroy = function () {
 	this.removeAllListeners();
-	this.target = null;
-	this.snapshots = null;
-	this.diff = null;
+	this.target = undefined;
+	this.snapshots = undefined;
+	this.diff = undefined;
 };
 
 
@@ -347,8 +363,12 @@ Dome.prototype.applyDiff = function (diff, silent) {
 
 
 Dome.prototype.addDiff = function (opName, path, args) {
-	this.diff.push([opName, path, args]);
-	this.emit('diff', opName, path, args);
+	// in the case of a child emitting diffs while the parent is destroyed, this should be a no-op
+
+	if (this.diff) {
+		this.diff.push([opName, path, args]);
+		this.emit('diff', opName, path, args);
+	}
 };
 
 
@@ -379,6 +399,13 @@ Dome.prototype.wrap = function (path) {
 
 	client.on('diff', function (opName, subPath, args) {
 		parent.addDiff(opName, Dome.joinPaths(path, subPath), args);
+	});
+
+	client.on('change', function (subPath, newValue, oldValue, opData) {
+		var fullPath = Dome.joinPaths(path, subPath);
+
+		parent.emit('change', fullPath, newValue, oldValue, opData);
+		parent.emit('change:' + fullPath, newValue, oldValue, opData);
 	});
 
 	return client;
@@ -415,28 +442,28 @@ Dome.prototype.clear = function (path) {
 Dome.prototype.append = function (path) {
 	var args = new Array(arguments.length - 1);
 	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = arguments[i];
+		args[i - 1] = clone(arguments[i]);
 	}
 
-	return traverse(this, 'append', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'append', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.fill = function (path) {
 	var args = new Array(arguments.length - 1);
 	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = arguments[i];
+		args[i - 1] = clone(arguments[i]);
 	}
 
-	return traverse(this, 'fill', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'fill', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.push = function (path) {
 	var args = new Array(arguments.length - 1);
 	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = arguments[i];
+		args[i - 1] = clone(arguments[i]);
 	}
 
-	return traverse(this, 'push', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'push', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.pop = function (path) {
@@ -450,19 +477,19 @@ Dome.prototype.shift = function (path) {
 Dome.prototype.unshift = function (path) {
 	var args = new Array(arguments.length - 1);
 	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = arguments[i];
+		args[i - 1] = clone(arguments[i]);
 	}
 
-	return traverse(this, 'unshift', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'unshift', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.splice = function (path) {
 	var args = new Array(arguments.length - 1);
 	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = arguments[i];
+		args[i - 1] = clone(arguments[i]);
 	}
 
-	return traverse(this, 'splice', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'splice', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.reverse = function (path) {

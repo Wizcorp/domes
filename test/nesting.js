@@ -3,8 +3,6 @@ var dome = require('..');
 
 test('Can set/has/get nested structures of all types', function (t) {
 	var d = dome({});
-	var value;
-
 	var path = 'hello.world.foo[3].bar';
 
 	function attempt(value, type) {
