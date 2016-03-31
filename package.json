@@ -4,7 +4,8 @@
   "description": "Evented data manager",
   "main": "index.js",
   "scripts": {
-    "test": "tape test/*.js | tap-spec"
+    "test": "tape test/*.js | tap-spec",
+    "cover": "rm -rf .nyc_output && nyc --silent --all tape 'test/*.js' > /dev/null 2>&1 && nyc report"
   },
   "keywords": [
     "evented",
@@ -21,6 +22,7 @@
     "clone": "^1.0.2"
   },
   "devDependencies": {
+    "nyc": "^6.1.1",
     "tap-spec": "^4.1.1",
     "tape": "^4.5.1"
   }

@@ -68,6 +68,22 @@ var ops = {
 		obj[key] -= value;
 		return obj[key];
 	},
+	clear: function (obj, key) {
+		var value = obj[key];
+
+		if (Array.isArray(value)) {
+			value.length = 0;
+		} else if (value && typeof value === 'object') {
+			var keys = Object.keys(value);
+			for (var i = 0; i < keys.length; i += 1) {
+				delete value[keys[i]];
+			}
+		} else {
+			throw new TypeError('Can only clear objects and arrays');
+		}
+
+		return value;
+	},
 	append: function (obj, key, args) {
 		// appends all given args to an array or string
 		var value = obj[key];
@@ -317,11 +333,13 @@ Dome.prototype.extractDiff = function () {
 };
 
 
-Dome.prototype.applyDiff = function (diff) {
+Dome.prototype.applyDiff = function (diff, silent) {
+	var options = silent ? OPT_NONE : OPT_EMIT_CHANGE;
+
 	for (var i = 0; i < diff.length; i += 1) {
 		var item = diff[i];  // op-name, path, args
 
-		traverse(this, item[0], item[1], item[2], OPT_EMIT_CHANGE);
+		traverse(this, item[0], item[1], item[2], options);
 	}
 
 	diff.length = 0;
@@ -390,6 +408,10 @@ Dome.prototype.dec = function (path, value) {
 	return traverse(this, 'dec', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
+Dome.prototype.clear = function (path) {
+	return traverse(this, 'clear', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+};
+
 Dome.prototype.append = function (path) {
 	var args = new Array(arguments.length - 1);
 	for (var i = 1; i < arguments.length; i += 1) {
@@ -431,7 +453,7 @@ Dome.prototype.unshift = function (path) {
 		args[i - 1] = arguments[i];
 	}
 
-	return traverse(this, 'shift', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return traverse(this, 'unshift', path, clone(args), OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 };
 
 Dome.prototype.splice = function (path) {

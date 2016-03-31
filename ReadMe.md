@@ -89,6 +89,13 @@ new value.
 Decrements the number property at the given path by the given amount or by 1 if no amount is passed, then returns the
 new value.
 
+#### Objects and Arrays
+
+**array|object dome.clear(string path)**
+
+Empties all properties or elements from the object or array at the given path, then returns the object or array
+reference.
+
 #### Strings and Arrays
 
 **array|string dome.append(string path[, mixed arg1[, mixed arg2[, ...]]])**
@@ -156,9 +163,10 @@ not be needed.
 
 Returns true if changes have been made to the target since instantiation or last `dome.extractDiff()`.
 
-**dome.applyDiff(array diff)**
+**dome.applyDiff(array diff[, bool silent])**
 
-Applies a diff structure to the dome, making all the changes and emitting all events that go with it.
+Applies a diff structure to the dome, making all the changes and emitting all events that go with it. If `silent` is
+`true`, events will not be emitted.
 
 
 ### Snapshots
