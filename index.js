@@ -14,66 +14,76 @@ var OPT_NONE = 0;
 var OPT_ADD_DIFF = 1;
 var OPT_EMIT_CHANGE = 2;
 
+// operations
+
+var readonly = {
+	has: true,
+	get: true,
+	copy: true
+};
+
+// operations receive: parent: object/array, key: string, value: parent[key], args: array
+// in the case of readonly operations, the parent and value may be undefined
+
 var ops = {
-	has: function (obj, key) {
-		return obj.hasOwnProperty(key);
+	has: function (parent, key) {
+		return parent ? parent.hasOwnProperty(key) : false;
 	},
-	get: function (obj, key, args) {
-		return obj.hasOwnProperty(key) ? obj[key] : args[0];
+	get: function (parent, key, value, args) {
+		return parent && parent.hasOwnProperty(key) ? value : args[0];
 	},
-	set: function (obj, key, args) {
-		obj[key] = args[0];
+	copy: function (parent, key, value) {
+		return clone(value);
+	},
+	set: function (parent, key, value, args) {
+		parent[key] = args[0];
 		return args[0];
 	},
-	del: function (obj, key) {
-		var value = obj[key];
-
-		if (Array.isArray(obj)) {
-			obj.splice(key, 1);
+	del: function (parent, key, value) {
+		if (Array.isArray(parent)) {
+			parent.splice(key, 1);
 		} else {
-			delete obj[key];
+			delete parent[key];
 		}
 
 		return value;
 	},
-	inc: function (obj, key, args) {
-		if (typeof obj[key] !== 'number') {
-			throw new TypeError('Cannot increment type "' + (typeof obj[key]) + '"');
+	inc: function (parent, key, value, args) {
+		if (typeof value !== 'number') {
+			throw new TypeError('Cannot increment type "' + (typeof value) + '"');
 		}
 
-		var value = args[0];
+		var delta = args[0];
 
-		if (value === undefined) {
-			value = 1;
-		} else if (typeof value !== 'number') {
-			throw new TypeError('Cannot increment by type "' + (typeof value) + '"');
+		if (delta === undefined) {
+			delta = 1;
+		} else if (typeof delta !== 'number') {
+			throw new TypeError('Cannot increment by type "' + (typeof delta) + '"');
 		}
 
-		obj[key] += value;
-		return obj[key];
+		parent[key] += delta;
+		return parent[key];
 	},
-	dec: function (obj, key, args) {
-		if (typeof obj[key] !== 'number') {
-			throw new TypeError('Cannot decrement a type "' + (typeof obj[key]) + '"');
+	dec: function (parent, key, value, args) {
+		if (typeof value !== 'number') {
+			throw new TypeError('Cannot decrement a type "' + (typeof value) + '"');
 		}
 
-		var value = args[0];
+		var delta = args[0];
 
-		if (value === undefined) {
-			value = 1;
-		} else if (typeof value !== 'number') {
-			throw new TypeError('Cannot decrement by type "' + (typeof value) + '"');
+		if (delta === undefined) {
+			delta = 1;
+		} else if (typeof delta !== 'number') {
+			throw new TypeError('Cannot decrement by type "' + (typeof delta) + '"');
 		}
 
-		obj[key] -= value;
-		return obj[key];
+		parent[key] -= delta;
+		return parent[key];
 	},
-	clear: function (obj, key) {
-		var value = obj[key];
-
+	clear: function (parent, key, value) {
 		if (Array.isArray(value)) {
 			value.length = 0;
-		} else if (value && typeof value === 'object') {
+		} else if (value !== null && typeof value === 'object') {
 			var keys = Object.keys(value);
 			for (var i = 0; i < keys.length; i += 1) {
 				delete value[keys[i]];
@@ -84,10 +94,8 @@ var ops = {
 
 		return value;
 	},
-	append: function (obj, key, args) {
+	append: function (parent, key, value, args) {
 		// appends all given args to an array or string
-		var value = obj[key];
-
 		if (typeof value === 'string') {
 			value += args.join('');
 		} else if (Array.isArray(value)) {
@@ -96,80 +104,70 @@ var ops = {
 			throw new TypeError('Can only append to strings and arrays');
 		}
 
-		obj[key] = value;
+		parent[key] = value;
+
 		return value;
 	},
-	fill: function (obj, key, args) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
+	fill: function (parent, key, value, args) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only fill arrays');
 		}
 
-		return arr.fill.apply(arr, args);
+		return value.fill.apply(value, args);
 	},
-	push: function (obj, key, args) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
+	push: function (parent, key, value, args) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only push onto arrays');
 		}
 
-		return arr.push.apply(arr, args);
+		return value.push.apply(value, args);
 	},
-	pop: function (obj, key) {
-		if (!Array.isArray(obj[key])) {
+	pop: function (parent, key, value) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only pop from arrays');
 		}
 
-		return obj[key].pop();
+		return value.pop();
 	},
-	shift: function (obj, key) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
+	shift: function (parent, key, value) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only shift from arrays');
 		}
 
-		return arr.shift();
+		return value.shift();
 	},
-	unshift: function (obj, key, args) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
+	unshift: function (parent, key, value, args) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only unshift to arrays');
 		}
 
-		return arr.unshift.apply(arr, args);
+		return value.unshift.apply(value, args);
 	},
-	splice: function (obj, key, args) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
+	splice: function (parent, key, value, args) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only splice arrays');
 		}
 
-		return arr.splice.apply(arr, args);
+		return value.splice.apply(value, args);
 	},
-	reverse: function (obj, key) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
+	reverse: function (parent, key, value) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only reverse arrays');
 		}
 
-		return arr.reverse();
+		return value.reverse();
 	},
-	sort: function (obj, key) {
-		var arr = obj[key];
-		if (!Array.isArray(arr)) {
+	sort: function (parent, key, value) {
+		if (!Array.isArray(value)) {
 			throw new TypeError('Can only sort arrays');
 		}
 
-		return arr.sort();
+		return value.sort();
 	}
 };
 
 
 function parsePath(path) {
-	if (Array.isArray(path)) {
-		return path;
-	}
-
 	var index, chunks = [];
 	var offset = 0;
 
@@ -223,40 +221,45 @@ function traverse(dome, opName, path, args, options) {
 
 	path = path.trim();
 
-	if (path.length === 0) {
-		throw new Error('Empty path provided');
-	}
-
-	var obj = dome.target;
 	var chunks = parsePath(path);
-	var chunk;
+	var isReadOnly = readonly[opName] ? true : false;
 
-	for (var i = 0; i < chunks.length - 1; i += 1) {
-		chunk = chunks[i];
-		var value = obj[chunk];
+	var parent = dome;
+	var key = 'target';
+	var value = parent[key];
 
-		if (!value || typeof value !== 'object') {
-			if (opFn === ops.has) {
-				return false;
-			}
+	// foo.bar
 
-			if (opFn === ops.get) {
-				return args[0]; // fallback or undefined
-			}
+	for (var i = 0; i < chunks.length; i += 1) {
+		var chunk = chunks[i];
 
-			if (typeof chunks[i + 1] === 'number') {
-				obj[chunk] = [];
+		// preprocess the value which will now become parent
+
+		if (value === null || typeof value !== 'object') {
+			// the value is not traverseable, so fix it so we can traverse it
+
+			if (isReadOnly) {
+				value = undefined;
 			} else {
-				obj[chunk] = {};
+				if (typeof chunk === 'number') {
+					parent[key] = value = [];
+				} else {
+					parent[key] = value = {};
+				}
 			}
 		}
 
-		obj = obj[chunk];
+		// update our state to this chunk
+
+		parent = value;
+		key = chunk;
+
+		if (parent !== undefined) {
+			value = parent[key];
+		}
 	}
 
-	chunk = chunks[chunks.length - 1];
-
-	// check if we should emit or diff
+	// check if we should emit changes or add to the diff
 
 	var mustEmit =
 		(options & OPT_EMIT_CHANGE) !== 0 &&
@@ -265,17 +268,21 @@ function traverse(dome, opName, path, args, options) {
 	var mustDiff = (options & OPT_ADD_DIFF) !== 0;
 
 	if (mustEmit) {
-		oldValue = clone(obj[chunk]);
+		oldValue = clone(value);
 	}
 
 	if (mustDiff) {
 		dome.addDiff(opName, path, clone(args));
 	}
 
-	var result = opFn(obj, chunk, args);
+	// run the operation, passing: parent object, target key, arguments
+
+	var result = opFn(parent, key, value, args);
+
+	// emit changes
 
 	if (mustEmit) {
-		var newValue = obj[chunk];
+		var newValue = parent ? parent[key] : undefined;
 		var opData = {
 			op: opName,
 			result: result
@@ -292,7 +299,7 @@ function traverse(dome, opName, path, args, options) {
 function Dome(target) {
 	EventEmitter.call(this);
 
-	this.target = target || {};
+	this.target = arguments.length >= 1 ? target : {};
 	this.snapshots = [];
 	this.diff = [];
 }
@@ -417,6 +424,10 @@ Dome.prototype.has = function (path) {
 
 Dome.prototype.get = function (path, fallback) {
 	return traverse(this, 'get', path, [fallback], OPT_NONE);
+};
+
+Dome.prototype.copy = function (path) {
+	return traverse(this, 'copy', path, [], OPT_NONE);
 };
 
 Dome.prototype.set = function (path, value) {

@@ -14,7 +14,7 @@ data being mutated.
 ## Benefits over other solutions
 
 * Domes do not inject hidden meta data into your objects.
-* Designed for crazy performance.
+* Designed for crazy performance and zero side-effects.
 * No more object-chaining errors (`Cannot read property 'foo' of undefined`).
 * Simple API and simple design, easy to maintain.
 * Ability to snapshot and rollback the data to a previous state.
@@ -46,11 +46,12 @@ d.push('list', 'item1', 'item2');
 
 ### Glossary
 
-* dome: wraps your object or array
-* target: the object or array being wrapped
-* path: a string that describes the path to a sub-property or index into an array (eg: `'foo.bar[2].foobar'`)
+* dome: wraps your value
+* target: the value being wrapped
+* path: a string that describes the path to a value (eg: `'foo.bar[2].foobar'`)
+* empty path: a path that is an empty string which points to the root value that is wrapped
 * diff: a list of changes that have been applied to the target
-* child: a dome that wraps a sub-object/array of an already wrapped target
+* child: a dome that wraps a sub-value of an already wrapped target
 
 
 ### Properties
@@ -70,6 +71,10 @@ Returns `true` if the property at the given path exists, `false` otherwise.
 
 Returns the value at the given path, or if it doesn't exist the given fallback value. If no value is found and no
 fallback value is passed, `undefined` will be returned.
+
+**mixed dome.copy(string path)**
+
+Returns a deep copy of the value at the given path. If no value is found `undefined` will be returned.
 
 
 ### Mutating
