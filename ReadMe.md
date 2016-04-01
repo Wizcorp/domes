@@ -206,14 +206,6 @@ operation).
 Here, `path` in `"change:path"` is the actual path that changed. This allows you to listen for changes at very specific
 locations. The arguments you receive are the same as with the `change` event.
 
-**"snapshot"**
-
-A snapshot was made.
-
-**"rollback"**
-
-A rollback occurred.
-
 **"diff": string opName, string path, array args**
 
 A diff entry was added because of a mutation. The operation is described by `opName`, the path on which it happened by

@@ -23,7 +23,7 @@ var readonly = {
 };
 
 // operations receive: parent: object/array, key: string, value: parent[key], args: array
-// in the case of readonly operations, the parent and value may be undefined
+// in the case of read-only operations, the parent and value may be undefined
 
 var ops = {
 	has: function (parent, key) {
@@ -271,13 +271,19 @@ function traverse(dome, opName, path, args, options) {
 		oldValue = clone(value);
 	}
 
+	// store snapshots if they were queued up
+
+	if (!isReadOnly) {
+		dome._storeSnapshotsIfNeeded();
+	}
+
+	// run the operation, passing: parent, key, parent[key], args
+
+	var result = opFn(parent, key, value, args);
+
 	if (mustDiff) {
 		dome.addDiff(opName, path, clone(args));
 	}
-
-	// run the operation, passing: parent object, target key, arguments
-
-	var result = opFn(parent, key, value, args);
 
 	// emit changes
 
@@ -301,6 +307,7 @@ function Dome(target) {
 
 	this.target = arguments.length >= 1 ? target : {};
 	this.snapshots = [];
+	this.lazySnapshots = 0;
 	this.diff = [];
 }
 
@@ -379,24 +386,39 @@ Dome.prototype.addDiff = function (opName, path, args) {
 };
 
 
+Dome.prototype._storeSnapshotsIfNeeded = function () {
+	if (this.lazySnapshots > 0) {
+		var snapshot = {
+			target: clone(this.target),
+			diff: clone(this.diff)
+		};
+
+		while (this.lazySnapshots > 0) {
+			this.snapshots.push(snapshot);
+			this.lazySnapshots -= 1;
+		}
+	}
+};
+
+
 Dome.prototype.snapshot = function () {
-	this.snapshots.push({
-		target: clone(this.target),
-		diff: clone(this.diff)
-	});
-	this.emit('snapshot');
+	this.lazySnapshots += 1;
 };
 
 
 Dome.prototype.rollback = function () {
-	var snapshot = this.snapshots.pop();
-	if (!snapshot) {
-		throw new Error('There are no snapshots to roll back to');
-	}
+	if (this.lazySnapshots > 0) {
+		// no changes were made between snapshot and rollback
+		this.lazySnapshots -= 1;
+	} else {
+		var snapshot = this.snapshots.pop();
+		if (!snapshot) {
+			throw new Error('There are no snapshots to roll back to');
+		}
 
-	this.target = snapshot.target;
-	this.diff = snapshot.diff;
-	this.emit('rollback');
+		this.target = snapshot.target;
+		this.diff = snapshot.diff;
+	}
 };
 
 
