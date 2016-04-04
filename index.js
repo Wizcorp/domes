@@ -14,221 +14,424 @@ var OPT_NONE = 0;
 var OPT_ADD_DIFF = 1;
 var OPT_EMIT_CHANGE = 2;
 
-// operations
 
-var readonly = {
-	has: true,
-	get: true,
-	copy: true
+function getLength() {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Only arrays have length');
+	}
+
+	return this.value.length;
+}
+
+
+function Reader(location) {
+	// no diffs or emissions
+
+	this.parent = location.parent;  // may be undefined
+	this.key = location.key;
+	this.value = this.parent && this.parent.hasOwnProperty(this.key) ? this.parent[this.key] : undefined;
+}
+
+
+Reader.prototype.exists = function () {
+	return this.parent ? this.parent.hasOwnProperty(this.key) : false;
 };
 
-// operations receive: parent: object/array, key: string, value: parent[key], args: array
-// in the case of read-only operations, the parent and value may be undefined
+Reader.prototype.get = function (fallback) {
+	if (!this.parent || !this.parent.hasOwnProperty(this.key)) {
+		return fallback;
+	}
 
-var ops = {
-	has: function (parent, key) {
-		return parent ? parent.hasOwnProperty(key) : false;
-	},
-	get: function (parent, key, value, args) {
-		return parent && parent.hasOwnProperty(key) ? value : args[0];
-	},
-	copy: function (parent, key, value) {
-		return clone(value);
-	},
-	set: function (parent, key, value, args) {
-		parent[key] = args[0];
-		return args[0];
-	},
-	del: function (parent, key, value) {
-		if (Array.isArray(parent)) {
-			parent.splice(key, 1);
-		} else {
-			delete parent[key];
-		}
+	return this.value;
+};
 
-		return value;
-	},
-	inc: function (parent, key, value, args) {
-		if (typeof value !== 'number') {
-			throw new TypeError('Cannot increment type "' + (typeof value) + '"');
-		}
+Reader.prototype.copy = function () {
+	return clone(this.get());
+};
 
-		var delta = args[0];
 
-		if (delta === undefined) {
-			delta = 1;
-		} else if (typeof delta !== 'number') {
-			throw new TypeError('Cannot increment by type "' + (typeof delta) + '"');
-		}
+Object.defineProperty(Reader.prototype, 'length', { get: getLength });
 
-		parent[key] += delta;
-		return parent[key];
-	},
-	dec: function (parent, key, value, args) {
-		if (typeof value !== 'number') {
-			throw new TypeError('Cannot decrement a type "' + (typeof value) + '"');
-		}
 
-		var delta = args[0];
+function Mutator(dome, path, location, options) {
+	// can diff, can emit
 
-		if (delta === undefined) {
-			delta = 1;
-		} else if (typeof delta !== 'number') {
-			throw new TypeError('Cannot decrement by type "' + (typeof delta) + '"');
-		}
+	this.dome = dome;
+	this.path = path;
+	this.parent = location.parent;      // always an array or object
+	this.key = location.key;
+	this.value = this.parent[this.key];
+	this.oldValue = undefined; // used when emitting
 
-		parent[key] -= delta;
-		return parent[key];
-	},
-	clear: function (parent, key, value) {
-		if (Array.isArray(value)) {
-			value.length = 0;
-		} else if (value !== null && typeof value === 'object') {
-			var keys = Object.keys(value);
-			for (var i = 0; i < keys.length; i += 1) {
-				delete value[keys[i]];
-			}
-		} else {
-			throw new TypeError('Can only clear objects and arrays');
-		}
+	this.mustDiff = dome.diff && (options & OPT_ADD_DIFF) !== 0;
+	this.mustEmit =
+		(options & OPT_EMIT_CHANGE) !== 0 &&
+		(dome.listenerCount('change') !== 0 || dome.listenerCount('change:' + path.toString()) !== 0);
+}
 
-		return value;
-	},
-	append: function (parent, key, value, args) {
-		// appends all given args to an array or string
-		if (typeof value === 'string') {
-			value += args.join('');
-		} else if (Array.isArray(value)) {
-			value = value.concat(args);
-		} else {
-			throw new TypeError('Can only append to strings and arrays');
-		}
 
-		parent[key] = value;
+Mutator.prototype.exists = Reader.prototype.exists;
+Mutator.prototype.get = Reader.prototype.get;
+Mutator.prototype.copy = Reader.prototype.copy;
+Object.defineProperty(Mutator.prototype, 'length', { get: getLength });
 
-		return value;
-	},
-	fill: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only fill arrays');
-		}
 
-		return value.fill.apply(value, args);
-	},
-	push: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only push onto arrays');
-		}
+Mutator.prototype._pre = function () {
+	this.dome._storeSnapshotsIfNeeded();
 
-		return value.push.apply(value, args);
-	},
-	pop: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only pop from arrays');
-		}
-
-		return value.pop();
-	},
-	shift: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only shift from arrays');
-		}
-
-		return value.shift();
-	},
-	unshift: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only unshift to arrays');
-		}
-
-		return value.unshift.apply(value, args);
-	},
-	splice: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only splice arrays');
-		}
-
-		return value.splice.apply(value, args);
-	},
-	reverse: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only reverse arrays');
-		}
-
-		return value.reverse();
-	},
-	sort: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only sort arrays');
-		}
-
-		return value.sort();
+	if (this.mustEmit) {
+		this.oldValue = clone(this.value);
 	}
 };
 
+Mutator.prototype._post = function (name, args, result) {
+	if (this.mustDiff) {
+		this.dome.addDiff(name, this.path.toString(), clone(args));
+	}
 
-function parsePath(path) {
-	var index, chunks = [];
+	var newValue = this.parent[this.key];
+
+	if (this.mustEmit) {
+		var opData = {
+			op: name,
+			result: result
+		};
+
+		this.dome.emit('change', this.path.toString(), newValue, this.oldValue, opData);
+		this.dome.emit('change:' + this.path.toString(), newValue, this.oldValue, opData);
+	}
+
+	this.value = newValue;
+
+	return result;
+};
+
+
+Mutator.prototype.set = function (value) {
+	this._pre();
+	this.parent[this.key] = value;
+	return this._post('set', [value], value);
+};
+
+
+Mutator.prototype.del = function () {
+	this._pre();
+	delete this.parent[this.key];
+	return this._post('del', [], this.value);
+};
+
+
+Mutator.prototype.inc = function (delta) {
+	if (typeof this.value !== 'number') {
+		throw new TypeError('Cannot increment type "' + (typeof this.value) + '"');
+	}
+
+	if (delta === undefined) {
+		delta = 1;
+	} else if (typeof delta !== 'number') {
+		throw new TypeError('Cannot increment by type "' + (typeof delta) + '"');
+	}
+
+	this._pre();
+	this.parent[this.key] = this.value + delta;
+	return this._post('inc', [delta], this.value + delta);
+};
+
+
+Mutator.prototype.dec = function (delta) {
+	if (typeof this.value !== 'number') {
+		throw new TypeError('Cannot decrement type "' + (typeof this.value) + '"');
+	}
+
+	if (delta === undefined) {
+		delta = 1;
+	} else if (typeof delta !== 'number') {
+		throw new TypeError('Cannot decrement by type "' + (typeof delta) + '"');
+	}
+
+	this._pre();
+	this.parent[this.key] = this.value - delta;
+	return this._post('dec', [delta], this.value - delta);
+};
+
+
+Mutator.prototype.clear = function () {
+	this._pre();
+
+	if (Array.isArray(this.value)) {
+		this.value.length = 0;
+	} else if (this.value !== null && typeof this.value === 'object') {
+		var keys = Object.keys(this.value);
+		for (var i = 0; i < keys.length; i += 1) {
+			delete this.value[keys[i]];
+		}
+	} else {
+		throw new TypeError('Can only clear objects and arrays');
+	}
+
+	return this._post('clear', [], this.value);
+};
+
+
+Mutator.prototype.append = function () {
+	// appends all given args to an array or string
+	var result;
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+
+	if (typeof this.value === 'string') {
+		result = this.value + args.join('');
+	} else if (Array.isArray(this.value)) {
+		result = this.value.concat(args);
+	} else {
+		throw new TypeError('Can only append to strings and arrays');
+	}
+
+	this.parent[this.key] = result;
+
+	return this._post('append', args, result);
+};
+
+
+Mutator.prototype.fill = function (filler, start, end) {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only fill arrays');
+	}
+
+	if (start === undefined) {
+		start = 0;
+	} else if (typeof start === 'number') {
+		if (start < 0) {
+			start += this.value.length;
+		}
+
+		start = Math.max(start, 0);
+	} else {
+		throw new TypeError('start must be a number');
+	}
+
+	if (end === undefined) {
+		end = this.value.length;
+	} else if (typeof end === 'number') {
+		if (end < 0) {
+			end += this.value.length;
+		}
+
+		end = Math.min(end, this.value.length);
+	} else {
+		throw new TypeError('end must be a number');
+	}
+
+	this._pre();
+
+	for (var i = start; i < end; i += 1) {
+		this.value[i] = filler;
+	}
+
+	return this._post('fill', [filler, start, end], this.value);
+};
+
+
+Mutator.prototype.push = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only push onto arrays');
+	}
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+	var result = this.value.push.apply(this.value, args);
+	return this._post('push', args, result);
+};
+
+
+Mutator.prototype.pop = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only pop from arrays');
+	}
+
+	this._pre();
+	var result = this.value.pop();
+	return this._post('pop', [], result);
+};
+
+
+Mutator.prototype.shift = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only shift from arrays');
+	}
+
+	this._pre();
+	var result = this.value.shift();
+	return this._post('shift', [], result);
+};
+
+
+Mutator.prototype.unshift = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only unshift to arrays');
+	}
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+	var result = this.value.unshift.apply(this.value, args);
+	return this._post('unshift', args, result);
+};
+
+
+Mutator.prototype.splice = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only splice arrays');
+	}
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+	var result = this.value.splice.apply(this.value, args);
+	return this._post('splice', args, result);
+};
+
+
+Mutator.prototype.reverse = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only reverse arrays');
+	}
+
+	this._pre();
+	var result = this.value.reverse();
+	return this._post('reverse', [], result);
+};
+
+
+Mutator.prototype.sort = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only sort arrays');
+	}
+
+	this._pre();
+	var result = this.value.sort();
+	return this._post('sort', [], result);
+};
+
+
+function Path(path) {
+	if (typeof path !== 'string') {
+		throw new TypeError('Path must be a string');
+	}
+
+	this.str = path.trim();
+	this.chunks = undefined;
+}
+
+
+Path.prototype.toString = function () {
+	return this.str;
+};
+
+
+Path.prototype.append = function (str) {
+	if (typeof str !== 'string') {
+		throw new TypeError('Can only append strings to paths');
+	}
+
+	if (str.length === 0) {
+		// nothing is being appended
+		return this;
+	}
+
+	if (this.str.length === 0) {
+		// our current path is empty
+		this.str = str;
+	} else if (str[0] === '[') {
+		// array notation can just be appended
+		this.str += str;
+	} else {
+		// str starts with a property name
+		this.str += '.' + str;
+	}
+
+	this.chunks = undefined;
+	return this;
+};
+
+
+Path.prototype.clone = function () {
+	return new Path(this.str);
+};
+
+
+Path.prototype.getChunks = function () {
+	if (this.chunks) {
+		return this.chunks;
+	}
+
+	var chunks = [];
+	var index;
 	var offset = 0;
 
-	while (offset < path.length) {
-		if (path[offset] === '[') {
+	while (offset < this.str.length) {
+		if (this.str[offset] === '[') {
 			// array element begins here
 
 			offset += 1;
 
-			index = path.indexOf(']', offset);
+			index = this.str.indexOf(']', offset);
 			if (index === -1) {
-				throw new Error('Could not find closing "]" in path: ' + path);
+				throw new Error('Could not find closing "]" in path: ' + this.str);
 			}
 
-			chunks.push(parseInt(path.substring(offset, index), 10));
+			chunks.push(parseInt(this.str.substring(offset, index), 10));
 			offset = index + 1;
 		} else {
 			// a period is optional at the start of the path or after an array element
 
-			if (path[offset] === '.') {
+			if (this.str[offset] === '.') {
 				offset += 1;
 			}
 
 			// find "." or "["
 
 			index = offset;
-			while (index < path.length && path[index] !== '.' && path[index] !== '[') {
+			while (index < this.str.length && this.str[index] !== '.' && this.str[index] !== '[') {
 				index += 1;
 			}
 
-			chunks.push(path.substring(offset, index));
+			chunks.push(this.str.substring(offset, index));
 			offset = index;
 		}
 	}
 
+	// assign late, because exceptions may have been thrown
+	this.chunks = chunks;
+
 	return chunks;
-}
+};
 
 
-function traverse(dome, opName, path, args, options) {
-	var oldValue;
-
-	var opFn = ops[opName];
-	if (!opFn) {
-		throw new Error('Operation not implemented: ' + opName);
-	}
-
-	if (typeof path !== 'string') {
-		throw new TypeError('Path must be a string');
-	}
-
-	path = path.trim();
-
-	var chunks = parsePath(path);
-	var isReadOnly = readonly[opName] ? true : false;
-
+function locate(dome, path, isReadOnly) {
+	var chunks = path.getChunks();
 	var parent = dome;
 	var key = 'target';
 	var value = parent[key];
-
-	// foo.bar
 
 	for (var i = 0; i < chunks.length; i += 1) {
 		var chunk = chunks[i];
@@ -259,78 +462,25 @@ function traverse(dome, opName, path, args, options) {
 		}
 	}
 
-	// check if we should emit changes or add to the diff
-
-	var mustEmit =
-		(options & OPT_EMIT_CHANGE) !== 0 &&
-		(dome.listenerCount('change') !== 0 || dome.listenerCount('change:' + path) !== 0);
-
-	var mustDiff = (options & OPT_ADD_DIFF) !== 0;
-
-	if (mustEmit) {
-		oldValue = clone(value);
-	}
-
-	// store snapshots if they were queued up
-
-	if (!isReadOnly) {
-		dome._storeSnapshotsIfNeeded();
-	}
-
-	// run the operation, passing: parent, key, parent[key], args
-
-	var result = opFn(parent, key, value, args);
-
-	if (mustDiff) {
-		dome.addDiff(opName, path, clone(args));
-	}
-
-	// emit changes
-
-	if (mustEmit) {
-		var newValue = parent ? parent[key] : undefined;
-		var opData = {
-			op: opName,
-			result: result
-		};
-
-		dome.emit('change', path, newValue, oldValue, opData);
-		dome.emit('change:' + path, newValue, oldValue, opData);
-	}
-
-	return result;
+	return {
+		parent: parent,
+		key: key
+	};
 }
 
 
-function Dome(target) {
+function Dome(value, options) {
 	EventEmitter.call(this);
 
-	this.target = arguments.length >= 1 ? target : {};
+	options = options || {};
+
+	this.target = value;
 	this.snapshots = [];
 	this.lazySnapshots = 0;
-	this.diff = [];
+	this.diff = options.noDiff ? undefined : [];
 }
 
 inherits(Dome, EventEmitter);
-
-
-Dome.joinPaths = function (a, b) {
-	if (b.length === 0) {
-		return a;
-	}
-
-	if (a.length === 0) {
-		return b;
-	}
-
-	if (b[0] === '[') {
-		// array notation can just be appended
-		return a + b;
-	}
-
-	// b starts with a property name
-	return a + '.' + b;
-};
 
 
 Dome.prototype.toJSON = function () {
@@ -347,16 +497,20 @@ Dome.prototype.destroy = function () {
 
 
 Dome.prototype.hasDiff = function () {
-	return this.diff.length > 0;
+	return this.diff ? this.diff.length > 0 : false;
 };
 
 
 Dome.prototype.peekDiff = function () {
-	return this.diff;
+	return this.diff || [];
 };
 
 
 Dome.prototype.extractDiff = function () {
+	if (!this.diff) {
+		return [];
+	}
+
 	var diff = this.diff;
 	this.diff = [];
 	return diff;
@@ -369,7 +523,14 @@ Dome.prototype.applyDiff = function (diff, silent) {
 	for (var i = 0; i < diff.length; i += 1) {
 		var item = diff[i];  // op-name, path, args
 
-		traverse(this, item[0], item[1], item[2], options);
+		var opName = item[0];
+		var path = new Path(item[1]);
+		var args = item[2];
+
+		var location = locate(this, path, false);
+		var mutator = new Mutator(this, path, location, options);
+
+		mutator[opName].apply(mutator, args);
 	}
 
 	diff.length = 0;
@@ -422,16 +583,27 @@ Dome.prototype.rollback = function () {
 };
 
 
+function prohibitSnapshot() {
+	throw new Error('Snapshots cannot be made on child-domes');
+}
+
+
 Dome.prototype.wrap = function (path) {
-	var client = new Dome(this.get(path));
+	path = new Path(path);
+
+	var client = new Dome(this.read(path).get());
+
+	client.snapshot = prohibitSnapshot;
+	client.rollback = prohibitSnapshot;
+
 	var parent = this;
 
-	client.on('diff', function (opName, subPath, args) {
-		parent.addDiff(opName, Dome.joinPaths(path, subPath), args);
+	client.on('diff', function onDiff(opName, subPath, args) {
+		parent.addDiff(opName, path.clone().append(subPath).toString(), args);
 	});
 
-	client.on('change', function (subPath, newValue, oldValue, opData) {
-		var fullPath = Dome.joinPaths(path, subPath);
+	client.on('change', function onChange(subPath, newValue, oldValue, opData) {
+		var fullPath = path.clone().append(subPath).toString();
 
 		parent.emit('change', fullPath, newValue, oldValue, opData);
 		parent.emit('change:' + fullPath, newValue, oldValue, opData);
@@ -440,100 +612,48 @@ Dome.prototype.wrap = function (path) {
 	return client;
 };
 
-Dome.prototype.has = function (path) {
-	return traverse(this, 'has', path, [], OPT_NONE);
-};
 
-Dome.prototype.get = function (path, fallback) {
-	return traverse(this, 'get', path, [fallback], OPT_NONE);
-};
-
-Dome.prototype.copy = function (path) {
-	return traverse(this, 'copy', path, [], OPT_NONE);
-};
-
-Dome.prototype.set = function (path, value) {
-	return traverse(this, 'set', path, [clone(value)], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.del = function (path) {
-	return traverse(this, 'del', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.inc = function (path, value) {
-	return traverse(this, 'inc', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.dec = function (path, value) {
-	return traverse(this, 'dec', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.clear = function (path) {
-	return traverse(this, 'clear', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.append = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
+Dome.prototype.mutate = function (path, fn) {
+	if (typeof path === 'function') {
+		fn = path;
+		path = null;
 	}
 
-	return traverse(this, 'append', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.fill = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
+	if (!(path instanceof Path)) {
+		path = new Path(path || '');
 	}
 
-	return traverse(this, 'fill', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
+	var location = locate(this, path, false);
+	var mutator = new Mutator(this, path, location, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
 
-Dome.prototype.push = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
+	if (fn) {
+		fn(mutator);
 	}
 
-	return traverse(this, 'push', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	return mutator;
 };
 
-Dome.prototype.pop = function (path) {
-	return traverse(this, 'pop', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.shift = function (path) {
-	return traverse(this, 'shift', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.unshift = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
+Dome.prototype.read = function (path, fn) {
+	if (typeof path === 'function') {
+		fn = path;
+		path = null;
 	}
 
-	return traverse(this, 'unshift', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.splice = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
+	if (!(path instanceof Path)) {
+		path = new Path(path || '');
 	}
 
-	return traverse(this, 'splice', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
+	var location = locate(this, path, true);
+	var reader = new Reader(location);
+
+	if (fn) {
+		fn(reader);
+	}
+
+	return reader;
 };
 
-Dome.prototype.reverse = function (path) {
-	return traverse(this, 'reverse', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
 
-Dome.prototype.sort = function (path) {
-	return traverse(this, 'sort', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-
-module.exports = function (obj) {
-	return new Dome(obj);
+module.exports = function (value, options) {
+	return new Dome(value, options);
 };

@@ -34,10 +34,13 @@ var dome = require('domes');
 var myObject = { hello: 'world' };
 
 var d = dome(myObject);
-d.set('hello.world.foo.bar', { a: { whole: { new: 'world' } } });
-d.get('hello.world.foo.bar.a.whole.new'); // returns 'world'
-d.set('list', []);
-d.push('list', 'item1', 'item2');
+d.mutate('hello.world.foo.bar').set({ a: { whole: { new: 'world' } } });
+d.read('hello.world.foo.bar.a.whole.new').get(); // returns 'world'
+d.mutate('list', function (m) {
+	m.set([]);
+	m.push('item1', 'item2');
+	console.log('Item count:', m.length);
+});
 ```
 
 
@@ -50,9 +53,10 @@ d.push('list', 'item1', 'item2');
 * target: the value being wrapped
 * path: a string that describes the path to a value (eg: `'foo.bar[2].foobar'`)
 * empty path: a path that is an empty string which points to the root value that is wrapped
+* reader: API to read the value at a path
+* mutator: API to manipulate the value at a path
 * diff: a list of changes that have been applied to the target
 * child: a dome that wraps a sub-value of an already wrapped target
-
 
 ### Properties
 
@@ -61,102 +65,116 @@ d.push('list', 'item1', 'item2');
 This is the object or array you wrapped in the dome.
 
 
-### Reading
+### Reader
 
-**bool dome.has(string path)**
+**Reader dome.read([string path[, Function runner(Reader)]])**
 
-Returns `true` if the property at the given path exists, `false` otherwise.
+Returns a reader for the given path, which may be empty when you want to refer directly to the dome's target. It also
+passes the reader to your optional callback if you provide it and runs this callback instantly. This can be a clean way
+to use a reader for a very specific scope of tasks without leaking it. It has the following API.
 
-**mixed dome.get(string path[, mixed fallback])**
+**bool reader.exists()**
 
-Returns the value at the given path, or if it doesn't exist the given fallback value. If no value is found and no
+Returns `true` if the property at the reader's path exists (by means of `hasOwnProperty`), `false` otherwise.
+
+**mixed reader.get([mixed fallback])**
+
+Returns the value at the reader's path, or if it doesn't exist the given fallback value. If no value is found and no
 fallback value is passed, `undefined` will be returned.
 
-**mixed dome.copy(string path)**
+**mixed reader.copy()**
 
-Returns a deep copy of the value at the given path. If no value is found `undefined` will be returned.
+Returns a deep copy of the value at the reader's path. If no value is found `undefined` will be returned.
 
 
-### Mutating
+### Mutator
+
+**Mutator dome.mutate([string path[, Function runner(Mutator)]])**
+
+Returns a mutator for the given path, which may be empty when you want to refer directly to the dome's target. It also
+passes the mutator to your optional callback if you provide it and runs this callback instantly. This can be a clean way
+to use a mutator for a very specific scope of tasks without leaking it. It has the following API.
+
 
 #### All types
 
-**mixed dome.set(string path, mixed value)**
+**mixed mutator.set(mixed value)**
 
-Sets the property at the given path to the given value, and returns this new value.
+Sets the property at the mutator's path to the given value, and returns this new value.
 
-**mixed dome.del(string path)**
+**mixed mutator.del()**
 
-Deletes the property at the given path, and returns the previous value.
+Deletes the property at the mutator's path, and returns the previous value.
 
 #### Numbers
 
-**number dome.inc(string path[, number amount])**
+**number mutator.inc([number amount])**
 
-Increments the number property at the given path by the given amount or by 1 if no amount is passed, then returns the
-new value.
+Increments the number property at the mutator's path by the given amount or by 1 if no amount is passed, then returns
+the new value.
 
-**number dome.dec(string path[, number amount])**
+**number mutator.dec([number amount])**
 
 Decrements the number property at the given path by the given amount or by 1 if no amount is passed, then returns the
 new value.
 
 #### Objects and Arrays
 
-**array|object dome.clear(string path)**
+**array|object mutator.clear()**
 
-Empties all properties or elements from the object or array at the given path, then returns the object or array
+Empties all properties or elements from the object or array at the mutator's path, then returns the object or array
 reference.
 
 #### Strings and Arrays
 
-**array|string dome.append(string path[, mixed arg1[, mixed arg2[, ...]]])**
+**array|string mutator.append([mixed arg1[, mixed arg2[, ...]]])**
 
-Appends the given arguments to the array or string at the given path, then returns the new value.
+Appends the given arguments to the array or string at the mutator's path, then returns the new value.
 
 #### Arrays
 
-**array dome.fill(string path, mixed value[, number start[, number end]])**
+**array mutator.fill(mixed value[, number start[, number end]])**
 
-Fills the array at the given path with the given value. You may provide start and end positions for fill to take place.
+Fills the array at the mutator's path with the given value. You may provide start and end positions for fill to take
+place. The full array is returned. Note that you do not need browser support for this to work, as the API is emulated.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/fill).
-The full array is returned.
 
-**number dome.push(string path[, mixed arg1[, mixed arg2[, ...]]])**
+**number mutator.push([mixed arg1[, mixed arg2[, ...]]])**
 
-Pushes all given values to the end of the array at the given path, then returns the new array length.
+Pushes all given values to the end of the array at the mutator's path, then returns the new array length.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/push).
 
-**mixed dome.pop(string path)**
+**mixed mutator.pop()**
 
-Pops a value from the end of the array at the given path, then returns it.
+Pops a value from the end of the array at the mutator's path, then returns it.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/pop).
 
-**mixed dome.shift(string path)**
+**mixed mutator.shift()**
 
-Removes a value from the beginning of the array at the given path, then returns it.
+Removes a value from the beginning of the array at the mutator's path, then returns it.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/shift).
 
-**mixed dome.unshift(string path[, mixed arg1[, mixed arg2[, ...]]])**
+**mixed mutator.unshift([mixed arg1[, mixed arg2[, ...]]])**
 
-Adds all given values to the beginning of the array at the given path, then returns the new length of the array.
+Adds all given values to the beginning of the array at the mutator's path, then returns the new length of the array.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/unshift).
 
-**array dome.splice(string path, number start, number deleteCount, [, mixed arg1[, mixed arg2[, ...]]])**
+**array mutator.splice(number start, number deleteCount, [, mixed arg1[, mixed arg2[, ...]]])**
 
-Removes `deleteCount` items from the array at the given path, starting at index `start`. It then inserts all given
+Removes `deleteCount` items from the array at the mutator's path, starting at index `start`. It then inserts all given
 values at that position. An array containing all deleted elements is returned (which will be empty if `deleteCount` was
 `0`).
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/splice).
 
-**array dome.reverse(string path)**
+**array mutator.reverse()**
 
-Reverses the array at the given path in place, then returns the array.
+Reverses the array at the mutator's path in place, then returns the array.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/reverse).
 
-**array dome.sort(string path)**
+**array mutator.sort()**
 
-Sorts the array at the given path in place, then returns the array. At this time, a compare function cannot be provided.
+Sorts the array at the mutator's path in place, then returns the array. At this time, a custom compare function cannot
+be provided.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort).
 
 
@@ -178,7 +196,7 @@ Returns true if changes have been made to the target since instantiation or last
 **dome.applyDiff(array diff[, bool silent])**
 
 Applies a diff structure to the dome, making all the changes and emitting all events that go with it. If `silent` is
-`true`, events will not be emitted.
+`true`, change-events will not be emitted.
 
 
 ### Snapshots
@@ -225,7 +243,8 @@ Changes made on the child dome will also be emitted as change events on the pare
 
 **dome.destroy()**
 
-Removes all data and diff references from the dome, as well as all event listeners.
+Removes all data and diff references from the dome, as well as all event listeners. If thie dome is a child dome of
+another dome, this will have no impact on the parent and its data.
 
 **object|array dome.toJSON()**
 

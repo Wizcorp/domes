@@ -2,9 +2,9 @@ var test = require('tape');
 var dome = require('..');
 
 test('String operations', function (t) {
-	var d = dome({ str: 'hello' });
+	var m = dome({ str: 'hello' }).mutate('str');
 
-	t.equal(d.append('str', ' ', 'world'), 'hello world', 'Can append multiple strings');
+	t.equal(m.append(' ', 'world'), 'hello world', 'Can append multiple strings');
 
 	t.end();
 });

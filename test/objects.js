@@ -2,9 +2,9 @@ var test = require('tape');
 var dome = require('..');
 
 test('Object operations', function (t) {
-	var d = dome({ foo: { hello: 1, world: 2 } });
+	var m = dome({ foo: { hello: 1, world: 2 } }).mutate('foo');
 
-	t.deepEqual(d.clear('foo'), {}, 'Object cleared');
+	t.deepEqual(m.clear(), {}, 'Object cleared');
 
 	t.end();
 });

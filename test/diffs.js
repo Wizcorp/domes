@@ -6,8 +6,8 @@ test('Diffs', function (t) {
 	var d = dome({});
 	var d2 = dome({});
 
-	d.set('foo.hello', false);
-	d.set('foo.world', []);
+	d.mutate('foo.hello').set(false);
+	d.mutate('foo.world').set([]);
 
 	t.equal(d.diff.length, 2, '2 diff entries');
 	t.deepEqual(d.target, o);
@@ -21,6 +21,15 @@ test('Diffs', function (t) {
 	d2.applyDiff(diff);
 
 	t.deepEqual(d2.target, o);
+
+	var d3 = dome({}, { noDiff: true });
+	d3.mutate('foo.bar', function (m) {
+		m.set([1, 2, 3]);
+		m.append(4);
+	});
+
+	t.equal(d3.peekDiff().length, 0);
+	t.equal(d3.extractDiff().length, 0);
 
 	t.end();
 });
