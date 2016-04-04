@@ -51,7 +51,7 @@ test('Wrap', function (t) {
 		}
 	});
 
-	c.mutate('foo').set('hello');
+	c.write('foo').set('hello');
 
 	t.equal(changes, 4, '4 perfect change events fired');
 	t.equal(diffs, 2, '2 perfect diff events fired');

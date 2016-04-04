@@ -6,8 +6,8 @@ test('Snapshots', function (t) {
 
 	d.snapshot();
 
-	d.mutate('foo.hello', function (m) {
-		m.set(false);
+	d.write('foo.hello', function (w) {
+		w.set(false);
 		t.deepEqual(d.target, { foo: { hello: false, world: true } }, 'Set successful');
 		t.equal(d.diff.length, 1, '1 diff entry');
 	});
@@ -17,8 +17,8 @@ test('Snapshots', function (t) {
 	d.snapshot();
 	d.rollback();
 
-	d.mutate('foo.world', function (m) {
-		m.set([]);
+	d.write('foo.world', function (w) {
+		w.set([]);
 		t.deepEqual(d.target, { foo: { hello: false, world: [] } }, 'Set successful');
 		t.equal(d.diff.length, 2, '2 diff entries');
 	});

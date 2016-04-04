@@ -5,11 +5,11 @@ test('Empty path operations', function (t) {
 	var o = { foo: { bar: true } };
 	var r;
 
-	dome(o).mutate(function (m) {
-		t.equal(m.set(5), 5, 'Set dome to the number 5');
-		t.equal(m.get(), 5, 'get() returned 5');
-		t.equal(m.exists(), true, 'has() returned true');
-		t.deepEqual(m.set({ foo: { bar: true } }), o, 'Dome reset to a full object');
+	dome(o).write(function (w) {
+		t.equal(w.set(5), 5, 'Set dome to the number 5');
+		t.equal(w.get(), 5, 'get() returned 5');
+		t.equal(w.exists(), true, 'has() returned true');
+		t.deepEqual(w.set({ foo: { bar: true } }), o, 'Dome reset to a full object');
 	});
 
 	dome(true).read(function (r) {
