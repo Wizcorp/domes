@@ -10,7 +10,7 @@ test('Diffs', function (t) {
 	d.write('foo.world').set([]);
 
 	t.equal(d.diff.length, 2, '2 diff entries');
-	t.deepEqual(d.target, o);
+	t.deepEqual(d.value, o);
 
 	var peekedDiff = d.peekDiff();
 	var diff = d.extractDiff();
@@ -20,9 +20,9 @@ test('Diffs', function (t) {
 
 	d2.applyDiff(diff);
 
-	t.deepEqual(d2.target, o);
+	t.deepEqual(d2.value, o);
 
-	var d3 = dome({}, { noDiff: true });
+	var d3 = dome({}, { addDiff: false });
 	d3.write('foo.bar', function (w) {
 		w.set([1, 2, 3]);
 		w.append(4);

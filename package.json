@@ -5,6 +5,8 @@
   "repository": "Wizcorp/domes",
   "main": "index.js",
   "scripts": {
+    "lint": "eslint .",
+    "unittest": "tape test/*.js | tap-spec",
     "test": "eslint . && tape test/*.js | tap-spec",
     "cover": "rm -rf .nyc_output && nyc --silent --all tape 'test/*.js' > /dev/null 2>&1 && nyc report"
   },

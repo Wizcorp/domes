@@ -34,12 +34,12 @@ var dome = require('domes');
 var myObject = { hello: 'world' };
 
 var d = dome(myObject);
-d.mutate('hello.world.foo.bar').set({ a: { whole: { new: 'world' } } });
+d.write('hello.world.foo.bar').set({ a: { whole: { new: 'world' } } });
 d.read('hello.world.foo.bar.a.whole.new').get(); // returns 'world'
-d.mutate('list', function (m) {
-	m.set([]);
-	m.push('item1', 'item2');
-	console.log('Item count:', m.length);
+d.write('list', function (w /* writer */) {
+	w.set([]);
+	w.push('item1', 'item2');
+	console.log('Item count:', w.length);
 });
 ```
 
@@ -49,29 +49,47 @@ d.mutate('list', function (m) {
 
 ### Glossary
 
-* dome: wraps your value
-* target: the value being wrapped
-* path: a string that describes the path to a value (eg: `'foo.bar[2].foobar'`)
-* empty path: a path that is an empty string which points to the root value that is wrapped
-* reader: API to read the value at a path
-* mutator: API to manipulate the value at a path
-* diff: a list of changes that have been applied to the target
-* child: a dome that wraps a sub-value of an already wrapped target
+* Reader: API to read the value at a path.
+* Writer: API to manipulate the value at a path. Writer inherits from Reader.
+* Dome: wraps your value. Dome inherits from Writer.
+* value: a value of any type wrapped by a reader, writer or dome.
+* path: a string that describes the path to a sub-value (eg: `'foo.bar[2].foobar'`).
+* empty path: a path that is an empty string which points to directly to the reader's, writer's or dome's value.
+* diff: a list of changes that have been applied to the value.
+* child: a dome that wraps a sub-value of a dome.
 
-### Properties
 
-**dome.target**
+### Creating a dome around a value
 
-This is the object or array you wrapped in the dome.
+```js
+var dome = require('domes');
+var myObject = { hello: 'world' };
+
+var d = dome(myObject);
+```
+
+Keep in mind that domes inherit from writers, which inherit from readers. All the API below that applies to Reader and
+Writer will therefore also directly apply to your dome instances.
+
+
+#### Creation options
+
+If you don't want to keep diffs or emit change events, you can optimize the behavior of your dome by passing in options:
+
+```js
+var d = dome(myObject, { addDiff: false, emitChanges: false });
+```
 
 
 ### Reader
 
 **Reader dome.read([string path[, Function runner(Reader)]])**
 
-Returns a reader for the given path, which may be empty when you want to refer directly to the dome's target. It also
+Returns a reader for the given path, which may be empty when you want to refer directly to the dome's value. It also
 passes the reader to your optional callback if you provide it and runs this callback instantly. This can be a clean way
 to use a reader for a very specific scope of tasks without leaking it. It has the following API.
+
+#### All value types
 
 **bool reader.exists()**
 
@@ -86,99 +104,124 @@ fallback value is passed, `undefined` will be returned.
 
 Returns a deep copy of the value at the reader's path. If no value is found `undefined` will be returned.
 
+**mixed reader.toJSON()**
 
-### Mutator
+Returns the reader's value so that serializing the reader to JSON is the same as serializing `reader.get()` to JSON.
 
-**Mutator dome.mutate([string path[, Function runner(Mutator)]])**
+#### Other
 
-Returns a mutator for the given path, which may be empty when you want to refer directly to the dome's target. It also
-passes the mutator to your optional callback if you provide it and runs this callback instantly. This can be a clean way
-to use a mutator for a very specific scope of tasks without leaking it. It has the following API.
+**reader.destroy()**
+
+Cleans out all data from the reader. If this reader is a child dome of another dome, writer or reader, this will have no
+impact on the parent and its data. You may use this function to aid aggressive garbage collection.
 
 
-#### All types
+### Writer
 
-**mixed mutator.set(mixed value)**
+Every Writer is also a Reader, and so inherits all the API mentioned under `Reader`.
 
-Sets the property at the mutator's path to the given value, and returns this new value.
+**Writer dome.write([string path[, Function runner(Writer)]])**
 
-**mixed mutator.del()**
+Returns a writer for the given path. It also passes the writer to your callback if you provide it and runs this callback
+instantly. This can be a clean way to use a writer for a very specific scope of tasks without leaking it into outer
+scopes. It has the following API.
 
-Deletes the property at the mutator's path, and returns the previous value.
+#### All value types
+
+**mixed writer.set(mixed value)**
+
+Sets the property at the writer's path to the given value, and returns this new value.
+
+**mixed writer.del()**
+
+Deletes the property at the writer's path, and returns the previous value.
 
 #### Numbers
 
-**number mutator.inc([number amount])**
+**number writer.inc([number amount])**
 
-Increments the number property at the mutator's path by the given amount or by 1 if no amount is passed, then returns
+Increments the number property at the writer's path by the given amount or by 1 if no amount is passed, then returns
 the new value.
 
-**number mutator.dec([number amount])**
+**number writer.dec([number amount])**
 
 Decrements the number property at the given path by the given amount or by 1 if no amount is passed, then returns the
 new value.
 
 #### Objects and Arrays
 
-**array|object mutator.clear()**
+**array|object writer.clear()**
 
-Empties all properties or elements from the object or array at the mutator's path, then returns the object or array
+Empties all properties or elements from the object or array at the writer's path, then returns the object or array
 reference.
 
 #### Strings and Arrays
 
-**array|string mutator.append([mixed arg1[, mixed arg2[, ...]]])**
+**array|string writer.append([mixed arg1[, mixed arg2[, ...]]])**
 
-Appends the given arguments to the array or string at the mutator's path, then returns the new value.
+Appends the given arguments to the array or string at the writer's path, then returns the new value.
 
 #### Arrays
 
-**array mutator.fill(mixed value[, number start[, number end]])**
+**array writer.fill(mixed value[, number start[, number end]])**
 
-Fills the array at the mutator's path with the given value. You may provide start and end positions for fill to take
+Fills the array at the writer's path with the given value. You may provide start and end positions for fill to take
 place. The full array is returned. Note that you do not need browser support for this to work, as the API is emulated.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/fill).
 
-**number mutator.push([mixed arg1[, mixed arg2[, ...]]])**
+**number writer.push([mixed arg1[, mixed arg2[, ...]]])**
 
-Pushes all given values to the end of the array at the mutator's path, then returns the new array length.
+Pushes all given values to the end of the array at the writer's path, then returns the new array length.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/push).
 
-**mixed mutator.pop()**
+**mixed writer.pop()**
 
-Pops a value from the end of the array at the mutator's path, then returns it.
+Pops a value from the end of the array at the writer's path, then returns it.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/pop).
 
-**mixed mutator.shift()**
+**mixed writer.shift()**
 
-Removes a value from the beginning of the array at the mutator's path, then returns it.
+Removes a value from the beginning of the array at the writer's path, then returns it.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/shift).
 
-**mixed mutator.unshift([mixed arg1[, mixed arg2[, ...]]])**
+**mixed writer.unshift([mixed arg1[, mixed arg2[, ...]]])**
 
-Adds all given values to the beginning of the array at the mutator's path, then returns the new length of the array.
+Adds all given values to the beginning of the array at the writer's path, then returns the new length of the array.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/unshift).
 
-**array mutator.splice(number start, number deleteCount, [, mixed arg1[, mixed arg2[, ...]]])**
+**array writer.splice(number start, number deleteCount, [, mixed arg1[, mixed arg2[, ...]]])**
 
-Removes `deleteCount` items from the array at the mutator's path, starting at index `start`. It then inserts all given
+Removes `deleteCount` items from the array at the writer's path, starting at index `start`. It then inserts all given
 values at that position. An array containing all deleted elements is returned (which will be empty if `deleteCount` was
 `0`).
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/splice).
 
-**array mutator.reverse()**
+**array writer.reverse()**
 
-Reverses the array at the mutator's path in place, then returns the array.
+Reverses the array at the writer's path in place, then returns the array.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/reverse).
 
-**array mutator.sort()**
+**array writer.sort()**
 
-Sorts the array at the mutator's path in place, then returns the array. At this time, a custom compare function cannot
+Sorts the array at the writer's path in place, then returns the array. At this time, a custom compare function cannot
 be provided.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort).
 
+#### Other
 
-### Synchronization
+**writer.destroy()**
+
+Cleans out all data from the writer. If this writer is a child dome of another dome or writer, this will have no
+impact on the parent and its data. You may use this function to aid aggressive garbage collection.
+
+
+### Dome
+
+Every Dome is also a Writer, and so inherits all the API mentioned under `Writer` and `Reader`. It also has the
+following API.
+
+
+#### Synchronization
 
 **array dome.extractDiff()**
 
@@ -191,7 +234,8 @@ not be needed.
 
 **bool dome.hasDiff()**
 
-Returns true if changes have been made to the target since instantiation or last `dome.extractDiff()`.
+Returns `true` if changes have been made to the dome's value since instantiation or last `dome.extractDiff()`, `false`
+otherwise.
 
 **dome.applyDiff(array diff[, bool silent])**
 
@@ -199,53 +243,50 @@ Applies a diff structure to the dome, making all the changes and emitting all ev
 `true`, change-events will not be emitted.
 
 
-### Snapshots
+#### Snapshots
 
 **dome.snapshot()**
 
-Makes a snapshot of the current target and diff. If you ever want to undo changes made, you will be able to roll back to
-this point in time. You can make as many snapshots as you like, you are not limited to 1.
+Makes a snapshot of the current dome value and diff. If you ever want to undo changes made, you will be able to roll
+back to this point in time. You can make as many snapshots as you like, you are not limited to 1.
 
 **dome.rollback()**
 
 Rolls back to the last snapshot. You can call this method as often as you have called `snapshot()`.
 
 
-### Events
+#### Events
 
-**"change": string path, mixed newValue, mixed oldValue, object operationData**
+**"change" (string path, mixed newValue, mixed oldValue, object operationData)**
 
 The value at the given path has changed, and its value has changed from `oldValue` to `newValue`. The `operationData`
 object has the properties `string op` (the operation name, eg: `"set"`) and `mixed result` (the return value of the
 operation).
 
-**"change:path": mixed newValue, mixed oldValue, object operationData**
+**"change:path" (mixed newValue, mixed oldValue, object operationData)**
 
 Here, `path` in `"change:path"` is the actual path that changed. This allows you to listen for changes at very specific
 locations. The arguments you receive are the same as with the `change` event.
 
-**"diff": string opName, string path, array args**
+**"diff" (string opName, string path, array args)**
 
 A diff entry was added because of a mutation. The operation is described by `opName`, the path on which it happened by
 `path` and the arguments passed to the operation are in the `args` array.
 
 
-### Client domes
+#### Client domes
 
 **Dome dome.wrap(string path)**
 
 This creates a dome from a path on an existing dome. They will remain connected, so any changes that you make on the
 child dome will automatically be added to the diff in the parent dome. The child will also keep its own diff state.
-Changes made on the child dome will also be emitted as change events on the parent.
+Changes made on the child dome will be emitted on the child as well as on the parent, with their paths normalized to
+the dome you are listening on. Child domes have all the same API as normal domes.
 
 
-### Other
+#### Other
 
 **dome.destroy()**
 
-Removes all data and diff references from the dome, as well as all event listeners. If thie dome is a child dome of
-another dome, this will have no impact on the parent and its data.
-
-**object|array dome.toJSON()**
-
-Returns the target object or array so that serializing the dome to JSON is the same as serializing its target to JSON.
+Cleans out all data and event listeners from the dome. If this dome is a child dome of another dome, this will have no
+impact on the parent and its data. You may use this function to aid aggressive garbage collection.

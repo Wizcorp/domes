@@ -22,7 +22,7 @@ function Path(path) {
 	}
 
 	this.str = path.trim();
-	this.chunks = undefined;
+	this.chunks = this.str === '' ? [] : undefined;
 }
 
 
@@ -32,7 +32,9 @@ Path.prototype.toString = function () {
 
 
 Path.prototype.append = function (str) {
-	if (typeof str !== 'string') {
+	if (str instanceof Path) {
+		str = str.str;
+	} else if (typeof str !== 'string') {
 		throw new TypeError('Can only append strings to paths');
 	}
 
@@ -113,7 +115,7 @@ Path.prototype.getChunks = function () {
 function locate(dome, path, isReadOnly) {
 	var chunks = path.getChunks();
 	var parent = dome;
-	var key = 'target';
+	var key = 'value';
 	var value = parent[key];
 
 	for (var i = 0; i < chunks.length; i += 1) {
@@ -154,18 +156,43 @@ function locate(dome, path, isReadOnly) {
 
 function Reader(dome, path, location) {
 	this.dome = dome; // the owning Dome (Dome)
-	this.path = path; // the path to this value (Path) from the owning Dome
+	this.path = path; // the path to this value (Path) relative to the owning Dome
 	this.parent = location.parent;  // may be undefined (Object|Array|undefined)
 	this.key = location.key;        // always defined (string)
 	this.value = this.parent && this.parent.hasOwnProperty(this.key) ? this.parent[this.key] : undefined;
 }
 
+Reader.prototype.destroy = function () {
+	this.dome = undefined;
+	this.path = undefined;
+	this.parent = undefined;
+	this.key = undefined;
+	this.value = undefined;
+};
+
 Reader.prototype.read = function (path, fn) {
-	if (typeof path === 'string') {
-		return this.dome.read(this.path.clone().append(path), fn);
+	if (typeof path === 'function') {
+		fn = path;
+		path = null;
 	}
 
-	return this.dome.read(path);
+	if (!(path instanceof Path)) {
+		path = new Path(path || '');
+	}
+
+	// make path relative to dome
+	if (this !== this.dome) {
+		path = this.path.clone().append(path);
+	}
+
+	var location = locate(this.dome, path, true);
+	var reader = new Reader(this.dome, path, location);
+
+	if (fn) {
+		fn(reader);
+	}
+
+	return reader;
 };
 
 Reader.prototype.toJSON = function () {
@@ -204,14 +231,19 @@ function Writer(dome, path, location, options) {
 	Reader.call(this, dome, path, location);
 
 	this.oldValue = undefined; // used when emitting
+	this.options = options || OPT_NONE;
 
-	this.mustDiff = dome.diff && (options & OPT_ADD_DIFF) !== 0;
-	this.mustEmit =
-		(options & OPT_EMIT_CHANGE) !== 0 &&
-		(dome.listenerCount('change') !== 0 || dome.listenerCount('change:' + path.toString()) !== 0);
+	this.mustDiff = dome.diff && (this.options & OPT_ADD_DIFF) !== 0;
+	this.mustEmit = (this.options & OPT_EMIT_CHANGE) !== 0;
 }
 
 inherits(Writer, Reader);
+
+
+Writer.prototype.destroy = function () {
+	Reader.prototype.destroy.call(this);
+	this.oldValue = undefined;
+};
 
 
 Writer.prototype._pre = function () {
@@ -224,7 +256,7 @@ Writer.prototype._pre = function () {
 
 Writer.prototype._post = function (name, args, result) {
 	if (this.mustDiff) {
-		this.dome.addDiff(name, this.path.toString(), clone(args));
+		this.dome.addDiff(name, this.path, clone(args));
 	}
 
 	var newValue = this.parent[this.key];
@@ -235,8 +267,7 @@ Writer.prototype._post = function (name, args, result) {
 			result: result
 		};
 
-		this.dome.emit('change', this.path.toString(), newValue, this.oldValue, opData);
-		this.dome.emit('change:' + this.path.toString(), newValue, this.oldValue, opData);
+		this.dome.invokeChange(this.path, newValue, this.oldValue, opData);
 	}
 
 	this.value = newValue;
@@ -245,11 +276,28 @@ Writer.prototype._post = function (name, args, result) {
 };
 
 Writer.prototype.write = function (path, fn) {
-	if (typeof path === 'string') {
-		return this.dome.write(this.path.clone().append(path), fn);
+	if (typeof path === 'function') {
+		fn = path;
+		path = null;
 	}
 
-	return this.dome.write(path);
+	if (!(path instanceof Path)) {
+		path = new Path(path || '');
+	}
+
+	// make path relative to dome
+	if (this !== this.dome) {
+		path = this.path.clone().append(path);
+	}
+
+	var location = locate(this.dome, path, false);
+	var writer = new Writer(this.dome, path, location, this.options);
+
+	if (fn) {
+		fn(writer);
+	}
+
+	return writer;
 };
 
 Writer.prototype.set = function (value) {
@@ -478,28 +526,32 @@ Writer.prototype.sort = function () {
 };
 
 
-function Dome(value, options) {
-	EventEmitter.call(this);
+function Dome(value, path, options) {
+	this.value = value;
 
-	options = options || {};
+	if (options === undefined) {
+		options = OPT_ADD_DIFF | OPT_EMIT_CHANGE;
+	}
 
-	this.target = value;
 	this.snapshots = [];
 	this.lazySnapshots = 0;
-	this.diff = options.noDiff ? undefined : [];
+	this.diff = [];
+
+	Writer.call(this, this, path, { parent: this, key: 'value' }, options);
+	EventEmitter.call(this);
 }
 
-inherits(Dome, EventEmitter);
+inherits(Dome, Writer);
 
-
-Dome.prototype.toJSON = function () {
-	return this.target;
-};
+Object.keys(EventEmitter.prototype).forEach(function (method) {
+	Dome.prototype[method] = EventEmitter.prototype[method];
+});
 
 
 Dome.prototype.destroy = function () {
+	Writer.prototype.destroy.call(this);
+
 	this.removeAllListeners();
-	this.target = undefined;
 	this.snapshots = undefined;
 	this.diff = undefined;
 };
@@ -550,16 +602,26 @@ Dome.prototype.addDiff = function (opName, path, args) {
 	// in the case of a child emitting diffs while the parent is destroyed, this should be a no-op
 
 	if (this.diff) {
+		path = path.toString();
+
 		this.diff.push([opName, path, args]);
 		this.emit('diff', opName, path, args);
 	}
 };
 
 
+Dome.prototype.invokeChange = function (path, newValue, oldValue, opData) {
+	path = path.toString();
+
+	this.emit('change', path, newValue, oldValue, opData);
+	this.emit('change:' + path, newValue, oldValue, opData);
+};
+
+
 Dome.prototype._storeSnapshotsIfNeeded = function () {
 	if (this.lazySnapshots > 0) {
 		var snapshot = {
-			target: clone(this.target),
+			value: clone(this.value),
 			diff: clone(this.diff)
 		};
 
@@ -586,83 +648,53 @@ Dome.prototype.rollback = function () {
 			throw new Error('There are no snapshots to roll back to');
 		}
 
-		this.target = snapshot.target;
+		this.value = snapshot.value;
 		this.diff = snapshot.diff;
 	}
 };
 
 
-function prohibitSnapshot() {
-	throw new Error('Snapshots cannot be made on child-domes');
-}
-
-
 Dome.prototype.wrap = function (path) {
 	path = new Path(path);
 
-	var client = new Dome(this.read(path).get());
-
-	client.snapshot = prohibitSnapshot;
-	client.rollback = prohibitSnapshot;
-
-	var parent = this;
-
-	client.on('diff', function onDiff(opName, subPath, args) {
-		parent.addDiff(opName, path.clone().append(subPath).toString(), args);
-	});
-
-	client.on('change', function onChange(subPath, newValue, oldValue, opData) {
-		var fullPath = path.clone().append(subPath).toString();
-
-		parent.emit('change', fullPath, newValue, oldValue, opData);
-		parent.emit('change:' + fullPath, newValue, oldValue, opData);
-	});
-
-	return client;
-};
-
-
-Dome.prototype.write = function (path, fn) {
-	if (typeof path === 'function') {
-		fn = path;
-		path = null;
-	}
-
-	if (!(path instanceof Path)) {
-		path = new Path(path || '');
-	}
-
-	var location = locate(this, path, false);
-	var writer = new Writer(this, path, location, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-
-	if (fn) {
-		fn(writer);
-	}
-
-	return writer;
-};
-
-Dome.prototype.read = function (path, fn) {
-	if (typeof path === 'function') {
-		fn = path;
-		path = null;
-	}
-
-	if (!(path instanceof Path)) {
-		path = new Path(path || '');
-	}
-
 	var location = locate(this, path, true);
-	var reader = new Reader(this, path, location);
-
-	if (fn) {
-		fn(reader);
+	if (!location.parent) {
+		throw new Error('Path does not exist on dome: ' + path);
 	}
 
-	return reader;
+	var that = this;
+	var child = new Dome(location.parent[location.key], path, this.options);
+
+	child.on('change', function (path, newValue, oldValue, opData) {
+		var fullPath = child.path.clone().append(path);
+
+		that.invokeChange(fullPath, newValue, oldValue, opData);
+	});
+
+	child.on('diff', function (name, path, args) {
+		var fullPath = child.path.clone().append(path);
+
+		that.addDiff(name, fullPath, args);
+	});
+
+	return child;
 };
 
 
 module.exports = function (value, options) {
-	return new Dome(value, options);
+	var opts;
+
+	if (options) {
+		opts = OPT_NONE;
+
+		if (options.hasOwnProperty('addDiff') && options.addDiff) {
+			opts |= OPT_ADD_DIFF;
+		}
+
+		if (options.hasOwnProperty('emitChanges') && options.emitChanges) {
+			opts |= OPT_EMIT_CHANGE;
+		}
+	}
+
+	return new Dome(value, new Path(''), opts);
 };

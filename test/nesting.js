@@ -16,7 +16,7 @@ test('Can set/has/get nested structures of all types', function (t) {
 		t.deepEqual(w.copy(), value, type + ': can copy');
 		t.deepEqual(w.del(), value, type + ': can del');
 		t.deepEqual(d.write('hello').del(), { world: { foo: [,,, {} ] } }, type + ': can del its parent property');
-		t.deepEqual(d.target, {}, type + ': target is an empty object');
+		t.deepEqual(d.value, {}, type + ': value is an empty object');
 		t.equal(d.read(path).exists(), false, type + ': no longer exists');
 	}
 
