@@ -9,7 +9,11 @@ test('Diffs', function (t) {
 	d.write('foo.hello').set(false);
 	d.write('foo.world').set([]);
 
-	t.equal(d.diff.length, 2, '2 diff entries');
+	t.deepEqual(d.diff, [
+		['set', ['foo', 'hello'], [false]],
+		['set', ['foo', 'world'], [[]]]
+	], 'Diff correctly generated');
+
 	t.deepEqual(d.value, o);
 
 	var peekedDiff = d.peekDiff();
@@ -28,6 +32,7 @@ test('Diffs', function (t) {
 		w.append(4);
 	});
 
+	t.equal(d3.diff, undefined);
 	t.equal(d3.peekDiff().length, 0);
 	t.equal(d3.extractDiff().length, 0);
 

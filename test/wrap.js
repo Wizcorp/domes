@@ -50,7 +50,7 @@ test('Wrap', function (t) {
 
 	d.on('diff', function (opName, path, args) {
 		t.equal(opName, 'set', 'Parent: diff operation is "set"');
-		t.equal(path, 'child.foo', 'Parent: path is child.foo');
+		t.deepEqual(path, ['child', 'foo'], 'Parent: path is ["child", "foo"]');
 		t.equal(args.length, 1, 'Parent: 1 argument was passed to "set"');
 		t.equal(args[0], 'hello', 'Parent: Argument passed is "hello"');
 
@@ -60,7 +60,7 @@ test('Wrap', function (t) {
 
 	c.on('diff', function (opName, path, args) {
 		t.equal(opName, 'set', 'Child: diff operation is "set"');
-		t.equal(path, 'foo', 'Child: path is foo');
+		t.deepEqual(path, ['foo'], 'Parent: path is ["foo"]');
 		t.equal(args.length, 1, 'Child: 1 argument was passed to "set"');
 		t.equal(args[0], 'hello', 'Child: Argument passed is "hello"');
 
@@ -72,6 +72,10 @@ test('Wrap', function (t) {
 
 	t.deepEqual(changed, expChanged, 'All expected change-events fired');
 	t.deepEqual(diffs, expDiffs, 'All expected diff-events fired');
+
+	t.throws(function () {
+		d.wrap('does.not.exist');
+	}, null, 'Cannot wrap non-existing paths');
 
 	t.end();
 });

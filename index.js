@@ -15,28 +15,61 @@ var OPT_ADD_DIFF = 1;
 var OPT_EMIT_CHANGE = 2;
 
 
-
 function Path(path) {
-	if (typeof path !== 'string') {
-		throw new TypeError('Path must be a string');
-	}
+	if (Array.isArray(path)) {
+		this.str = Path.chunksToString(path);
+		this.chunks = path;
+	} else {
+		if (typeof path !== 'string') {
+			throw new TypeError('Path must be a string');
+		}
 
-	this.str = path.trim();
-	this.chunks = this.str === '' ? [] : undefined;
+		this.str = path.trim();
+		this.chunks = this.str === '' ? [] : undefined;
+	}
 }
 
+
+Path.chunksToString = function (chunks) {
+	var str = '';
+
+	for (var i = 0; i < chunks.length; i += 1) {
+		var chunk = chunks[i];
+
+		if (typeof chunk === 'string') {
+			if (i === 0) {
+				str += chunk;
+			} else {
+				str += '.' + chunk;
+			}
+		} else if (typeof chunk === 'number') {
+			str += '[' + chunk + ']';
+		}
+	}
+
+	return str;
+};
 
 Path.prototype.toString = function () {
 	return this.str;
 };
 
+Path.prototype.toJSON = function () {
+	return this.getChunks();
+};
 
 Path.prototype.append = function (str) {
-	if (str instanceof Path) {
-		str = str.str;
-	} else if (typeof str !== 'string') {
-		throw new TypeError('Can only append strings to paths');
+	if (Array.isArray(str)) {
+		str = new Path(str);
 	}
+
+	if (str instanceof Path) {
+		str = str.toString();
+	} else if (typeof str !== 'string') {
+		throw new TypeError('Can only append arrays and strings to paths');
+	}
+
+	str = str.trim();
 
 	if (str.length === 0) {
 		// nothing is being appended
@@ -45,22 +78,16 @@ Path.prototype.append = function (str) {
 
 	if (this.str.length === 0) {
 		// our current path is empty
-		this.str = str;
-	} else if (str[0] === '[') {
-		// array notation can just be appended
-		this.str += str;
-	} else {
-		// str starts with a property name
-		this.str += '.' + str;
+		return new Path(str);
 	}
 
-	this.chunks = undefined;
-	return this;
-};
+	if (str[0] === '[') {
+		// array notation can just be appended
+		return new Path(this.str + str);
+	}
 
-
-Path.prototype.clone = function () {
-	return new Path(this.str);
+	// str starts with a property name
+	return new Path(this.str + '.' + str);
 };
 
 
@@ -69,39 +96,51 @@ Path.prototype.getChunks = function () {
 		return this.chunks;
 	}
 
+	var STATE_NONE = 0, STATE_STR = 1, STATE_NUM = 2;
+
+	var str = this.str;
+	var len = str.length;
 	var chunks = [];
-	var index;
-	var offset = 0;
 
-	while (offset < this.str.length) {
-		if (this.str[offset] === '[') {
-			// array element begins here
+	if (len === 0) {
+		this.chunks = chunks;
+		return chunks;
+	}
 
-			offset += 1;
+	var state = str[0] === '[' ? STATE_NUM : STATE_STR;
+	var offset = str[0] === '[' ? 1 : 0;
+	var index = offset;
 
-			index = this.str.indexOf(']', offset);
-			if (index === -1) {
-				throw new Error('Could not find closing "]" in path: ' + this.str);
+	for (; offset < len; offset += 1) {
+		var char = str[offset];
+		var next = str[offset + 1];
+
+		if (state === STATE_NONE) {
+			if (char === '.') {
+				state = STATE_STR;
+			} else if (char === '[') {
+				state = STATE_NUM;
+			} else {
+				throw new Error('Unexpected character "' + char + '" at offset ' + offset + ' of path "' + str + '"');
+			}
+			index = offset + 1;
+		} else if (state === STATE_NUM) {
+			if (char < '0' || char > '9') {
+				throw new Error('Unexpected non-digit "' + char + '" at offset ' + offset + ' of path "' + str + '"');
 			}
 
-			chunks.push(parseInt(this.str.substring(offset, index), 10));
-			offset = index + 1;
-		} else {
-			// a period is optional at the start of the path or after an array element
-
-			if (this.str[offset] === '.') {
+			if (next === ']') {
+				chunks.push(parseInt(str.substring(index, offset + 1), 10));
 				offset += 1;
+				state = STATE_NONE;
+			} else if (next === undefined) {
+				throw new Error('Unexpected end-of-string of path "' + str + '"');
 			}
-
-			// find "." or "["
-
-			index = offset;
-			while (index < this.str.length && this.str[index] !== '.' && this.str[index] !== '[') {
-				index += 1;
+		} else if (state === STATE_STR) {
+			if (next === '.' || next === '[' || next === undefined) {
+				chunks.push(str.substring(index, offset + 1));
+				state = STATE_NONE;
 			}
-
-			chunks.push(this.str.substring(offset, index));
-			offset = index;
 		}
 	}
 
@@ -182,7 +221,7 @@ Reader.prototype.read = function (path, fn) {
 
 	// make path relative to dome
 	if (this !== this.dome) {
-		path = this.path.clone().append(path);
+		path = this.path.append(path);
 	}
 
 	var location = locate(this.dome, path, true);
@@ -287,7 +326,7 @@ Writer.prototype.write = function (path, fn) {
 
 	// make path relative to dome
 	if (this !== this.dome) {
-		path = this.path.clone().append(path);
+		path = this.path.append(path);
 	}
 
 	var location = locate(this.dome, path, false);
@@ -535,7 +574,7 @@ function Dome(value, path, options) {
 
 	this.snapshots = [];
 	this.lazySnapshots = 0;
-	this.diff = [];
+	this.diff = (options & OPT_ADD_DIFF) === 0 ? undefined : [];
 
 	Writer.call(this, this, path, { parent: this, key: 'value' }, options);
 	EventEmitter.call(this);
@@ -602,7 +641,7 @@ Dome.prototype.addDiff = function (opName, path, args) {
 	// in the case of a child emitting diffs while the parent is destroyed, this should be a no-op
 
 	if (this.diff) {
-		path = path.toString();
+		path = path.getChunks();
 
 		this.diff.push([opName, path, args]);
 		this.emit('diff', opName, path, args);
@@ -666,15 +705,11 @@ Dome.prototype.wrap = function (path) {
 	var child = new Dome(location.parent[location.key], path, this.options);
 
 	child.on('change', function (path, newValue, oldValue, opData) {
-		var fullPath = child.path.clone().append(path);
-
-		that.invokeChange(fullPath, newValue, oldValue, opData);
+		that.invokeChange(child.path.append(path), newValue, oldValue, opData);
 	});
 
 	child.on('diff', function (name, path, args) {
-		var fullPath = child.path.clone().append(path);
-
-		that.addDiff(name, fullPath, args);
+		that.addDiff(name, child.path.append(path), args);
 	});
 
 	return child;
