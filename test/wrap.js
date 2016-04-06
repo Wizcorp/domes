@@ -5,6 +5,8 @@ test('Wrap', function (t) {
 	var d = dome({ child: {} });
 	var c = d.wrap('child');
 
+	t.equal(d.wrap('child'), c, 'Wrapping the same path returns the same child dome');
+
 	var expChanged = { d: true, c: true, dpath: true, cpath: true, count: 4 };
 	var changed = { d: false, c: false, dpath: false, cpath: false, count: 0 };
 	var expDiffs = { d: true, c: true, count: 2 };

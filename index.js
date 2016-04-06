@@ -15,7 +15,15 @@ var OPT_ADD_DIFF = 1;
 var OPT_EMIT_CHANGE = 2;
 
 
+function Operation(name, result) {
+	this.op = name;
+	this.result = result;
+}
+
+
 function Path(path) {
+	// a read only class
+
 	if (Array.isArray(path)) {
 		this.str = Path.chunksToString(path);
 		this.chunks = path;
@@ -64,6 +72,11 @@ Path.prototype.append = function (str) {
 	}
 
 	if (str instanceof Path) {
+		if (this.str.length === 0) {
+			// our current path is empty, so just return the provided subpath
+			return str;
+		}
+
 		str = str.toString();
 	} else if (typeof str !== 'string') {
 		throw new TypeError('Can only append arrays and strings to paths');
@@ -192,16 +205,92 @@ function locate(dome, path, isReadOnly) {
 	};
 }
 
-
-function Reader(dome, path, location) {
-	this.dome = dome; // the owning Dome (Dome)
-	this.path = path; // the path to this value (Path) relative to the owning Dome
-	this.parent = location.parent;  // may be undefined (Object|Array|undefined)
-	this.key = location.key;        // always defined (string)
-	this.value = this.parent && this.parent.hasOwnProperty(this.key) ? this.parent[this.key] : undefined;
+function Children() {
+	this.readers = undefined;
+	this.writers = undefined;
+	this.domes = undefined;
 }
 
+Children.prototype.destroy = function (type) {
+	if (type === undefined) {
+		this.destroy('readers');
+		this.destroy('writers');
+		this.destroy('domes');
+		return;
+	}
+
+	var obj = this[type];
+	if (obj !== undefined) {
+		this[type] = undefined;
+
+		var keys = Object.keys(obj);
+		for (var i = 0; i < keys.length; i += 1) {
+			obj[keys[i]].destroy();
+		}
+	}
+};
+
+Children.prototype.getReader = function (path) {
+	return this.readers && this.readers[path];
+};
+
+Children.prototype.addReader = function (path, reader) {
+	if (this.readers === undefined) {
+		this.readers = {};
+	}
+
+	this.readers[path] = reader;
+};
+
+Children.prototype.getWriter = function (path) {
+	return this.writers && this.writers[path];
+};
+
+Children.prototype.addWriter = function (path, writer) {
+	if (this.writers === undefined) {
+		this.writers = {};
+	}
+
+	this.writers[path] = writer;
+};
+
+Children.prototype.getDome = function (path) {
+	return this.domes && this.domes[path];
+};
+
+Children.prototype.addDome = function (path, dome) {
+	if (this.domes === undefined) {
+		this.domes = {};
+	}
+
+	this.domes[path] = dome;
+};
+
+
+function Reader(dome, path) {
+	this.isReadOnly = true;
+	this.dome = dome;         // the parent Dome (Dome)
+	this.path = path;         // the path to this value (Path) relative to the owning Dome
+	this.parent = undefined;  // (Object|Array|undefined)
+	this.key = undefined;     // (string)
+	this.value = undefined;
+}
+
+Reader.prototype.loadValue = function () {
+	if (this.dome === this) {
+		this.parent = this;
+		this.key = 'value';
+	} else {
+		var location = locate(this.dome, this.path, this.isReadOnly);
+
+		this.parent = location.parent;
+		this.key = location.key;
+		this.value = this.parent && this.parent.hasOwnProperty(this.key) ? this.parent[this.key] : undefined;
+	}
+};
+
 Reader.prototype.destroy = function () {
+	this.children.destroy('readers');
 	this.dome = undefined;
 	this.path = undefined;
 	this.parent = undefined;
@@ -224,8 +313,13 @@ Reader.prototype.read = function (path, fn) {
 		path = this.path.append(path);
 	}
 
-	var location = locate(this.dome, path, true);
-	var reader = new Reader(this.dome, path, location);
+	var reader = this.dome.children.getReader(path);
+	if (!reader) {
+		reader = new Reader(this.dome, path);
+		this.dome.children.addReader(path, reader);
+	}
+
+	reader.loadValue();
 
 	if (fn) {
 		fn(reader);
@@ -236,6 +330,15 @@ Reader.prototype.read = function (path, fn) {
 
 Reader.prototype.toJSON = function () {
 	return this.value;
+};
+
+Reader.prototype.getRelativePath = function (asObject) {
+	return asObject ? this.path : this.path.toString();
+};
+
+Reader.prototype.getAbsolutePath = function (asObject) {
+	var result = this.dome.getAbsolutePath(true).append(this.path);
+	return asObject ? result : result.toString();
 };
 
 Reader.prototype.exists = function () {
@@ -254,7 +357,6 @@ Reader.prototype.copy = function () {
 	return clone(this.get());
 };
 
-
 Object.defineProperty(Reader.prototype, 'length', {
 	get: function () {
 		if (!Array.isArray(this.value)) {
@@ -266,20 +368,19 @@ Object.defineProperty(Reader.prototype, 'length', {
 });
 
 
-function Writer(dome, path, location, options) {
-	Reader.call(this, dome, path, location);
+function Writer(dome, path, options) {
+	Reader.call(this, dome, path);
 
+	this.isReadOnly = false;
 	this.oldValue = undefined; // used when emitting
 	this.options = options || OPT_NONE;
-
-	this.mustDiff = dome.diff && (this.options & OPT_ADD_DIFF) !== 0;
-	this.mustEmit = (this.options & OPT_EMIT_CHANGE) !== 0;
 }
 
 inherits(Writer, Reader);
 
 
 Writer.prototype.destroy = function () {
+	this.children.destroy('writers');
 	Reader.prototype.destroy.call(this);
 	this.oldValue = undefined;
 };
@@ -288,25 +389,20 @@ Writer.prototype.destroy = function () {
 Writer.prototype._pre = function () {
 	this.dome._storeSnapshotsIfNeeded();
 
-	if (this.mustEmit) {
+	if ((this.options & OPT_EMIT_CHANGE) !== 0) {
 		this.oldValue = clone(this.value);
 	}
 };
 
 Writer.prototype._post = function (name, args, result) {
-	if (this.mustDiff) {
+	if ((this.options & OPT_ADD_DIFF) !== 0) {
 		this.dome.addDiff(name, this.path, clone(args));
 	}
 
 	var newValue = this.parent[this.key];
 
-	if (this.mustEmit) {
-		var opData = {
-			op: name,
-			result: result
-		};
-
-		this.dome.invokeChange(this.path, newValue, this.oldValue, opData);
+	if ((this.options & OPT_EMIT_CHANGE) !== 0) {
+		this.dome.invokeChange(this.path, newValue, this.oldValue, new Operation(name, result));
 	}
 
 	this.value = newValue;
@@ -329,14 +425,27 @@ Writer.prototype.write = function (path, fn) {
 		path = this.path.append(path);
 	}
 
-	var location = locate(this.dome, path, false);
-	var writer = new Writer(this.dome, path, location, this.options);
+	var writer = this.dome.children.getWriter(path);
+	if (!writer) {
+		writer = new Writer(this.dome, path, this.options);
+		this.dome.children.addWriter(path, writer);
+	}
+
+	writer.loadValue();
 
 	if (fn) {
 		fn(writer);
 	}
 
 	return writer;
+};
+
+Writer.prototype.invoke = function (eventName, data) {
+	this.dome.emit(eventName, this.path.toString(), data);
+
+	if ((this.options & OPT_ADD_DIFF) !== 0) {
+		this.dome.addDiff('invoke', this.path, [eventName, clone(data)]);
+	}
 };
 
 Writer.prototype.set = function (value) {
@@ -566,18 +675,16 @@ Writer.prototype.sort = function () {
 
 
 function Dome(value, path, options) {
+	Writer.call(this, this, path, options);
+	EventEmitter.call(this);
+
+	this.children = new Children();  // all readers, writers and wrapped domes
 	this.value = value;
-
-	if (options === undefined) {
-		options = OPT_ADD_DIFF | OPT_EMIT_CHANGE;
-	}
-
 	this.snapshots = [];
 	this.lazySnapshots = 0;
 	this.diff = (options & OPT_ADD_DIFF) === 0 ? undefined : [];
 
-	Writer.call(this, this, path, { parent: this, key: 'value' }, options);
-	EventEmitter.call(this);
+	this.loadValue();
 }
 
 inherits(Dome, Writer);
@@ -588,11 +695,12 @@ Object.keys(EventEmitter.prototype).forEach(function (method) {
 
 
 Dome.prototype.destroy = function () {
+	this.children.destroy('domes');
 	Writer.prototype.destroy.call(this);
-
 	this.removeAllListeners();
 	this.snapshots = undefined;
 	this.diff = undefined;
+	this.children = undefined;
 };
 
 
@@ -618,7 +726,9 @@ Dome.prototype.extractDiff = function () {
 
 
 Dome.prototype.applyDiff = function (diff, silent) {
-	var options = silent ? OPT_NONE : OPT_EMIT_CHANGE;
+	var oldOptions = this.options;
+
+	this.options = silent ? OPT_NONE : OPT_EMIT_CHANGE;
 
 	for (var i = 0; i < diff.length; i += 1) {
 		var item = diff[i];  // op-name, path, args
@@ -627,11 +737,11 @@ Dome.prototype.applyDiff = function (diff, silent) {
 		var path = new Path(item[1]);
 		var args = item[2];
 
-		var location = locate(this, path, false);
-		var writer = new Writer(this, path, location, options);
-
+		var writer = this.write(path);
 		writer[opName].apply(writer, args);
 	}
+
+	this.options = oldOptions;
 
 	diff.length = 0;
 };
@@ -687,8 +797,18 @@ Dome.prototype.rollback = function () {
 			throw new Error('There are no snapshots to roll back to');
 		}
 
+		var oldValue;
+
+		if ((this.options & OPT_EMIT_CHANGE) !== 0) {
+			oldValue = clone(this.value);
+		}
+
 		this.value = snapshot.value;
 		this.diff = snapshot.diff;
+
+		if ((this.options & OPT_EMIT_CHANGE) !== 0) {
+			this.invokeChange('', this.value, oldValue, new Operation('rollback', undefined));
+		}
 	}
 };
 
@@ -696,13 +816,19 @@ Dome.prototype.rollback = function () {
 Dome.prototype.wrap = function (path) {
 	path = new Path(path);
 
+	var child = this.children.getDome(path);
+	if (child) {
+		return child;
+	}
+
 	var location = locate(this, path, true);
 	if (!location.parent) {
 		throw new Error('Path does not exist on dome: ' + path);
 	}
 
+	child = new Dome(location.parent[location.key], path, this.options);
+
 	var that = this;
-	var child = new Dome(location.parent[location.key], path, this.options);
 
 	child.on('change', function (path, newValue, oldValue, opData) {
 		that.invokeChange(child.path.append(path), newValue, oldValue, opData);
@@ -711,6 +837,8 @@ Dome.prototype.wrap = function (path) {
 	child.on('diff', function (name, path, args) {
 		that.addDiff(name, child.path.append(path), args);
 	});
+
+	this.children.addDome(path, child);
 
 	return child;
 };
@@ -729,6 +857,8 @@ module.exports = function (value, options) {
 		if (options.hasOwnProperty('emitChanges') && options.emitChanges) {
 			opts |= OPT_EMIT_CHANGE;
 		}
+	} else {
+		opts = OPT_ADD_DIFF | OPT_EMIT_CHANGE;
 	}
 
 	return new Dome(value, new Path(''), opts);

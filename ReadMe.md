@@ -209,6 +209,12 @@ More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScrip
 
 #### Other
 
+**writer.invoke(string eventName, mixed data)**
+
+Emits `eventName` on the dome with `(string path, mixed data)` as arguments to listeners. The invocation will be part of
+the diff structure, making it possible to use this mechanism to emit events over a serialized connection between
+multiple domes. The event emission happens the moment you call `applyDiff` on your dome.
+
 **writer.destroy()**
 
 Cleans out all data from the writer. If this writer is a child dome of another dome or writer, this will have no

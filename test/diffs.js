@@ -8,10 +8,12 @@ test('Diffs', function (t) {
 
 	d.write('foo.hello').set(false);
 	d.write('foo.world').set([]);
+	d.write('foo').invoke('HELLO', { world: true });
 
 	t.deepEqual(d.diff, [
 		['set', ['foo', 'hello'], [false]],
-		['set', ['foo', 'world'], [[]]]
+		['set', ['foo', 'world'], [[]]],
+		['invoke', ['foo'], ['HELLO', { world: true }]]
 	], 'Diff correctly generated');
 
 	t.deepEqual(d.value, o);
