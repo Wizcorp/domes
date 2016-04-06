@@ -110,6 +110,14 @@ Returns the reader's value so that serializing the reader to JSON is the same as
 
 #### Other
 
+**string reader.getAbsolutePath()**
+
+Returns the full path to this instance.
+
+**string reader.getRelativePath()**
+
+Returns the path to this instance measured from its parent dome.
+
 **reader.destroy()**
 
 Cleans out all data from the reader. If this reader is a child dome of another dome, writer or reader, this will have no
