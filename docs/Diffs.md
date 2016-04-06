@@ -8,7 +8,7 @@ diff item = '["', operation name, '",', path, ",", args, "]"
 
 operation name = "set" | "del" | "inc" | "dec" | "clear" | "append" | "fill" |
                  "push" | "pop" | "shift" | "unshift" | "splice" | "reverse" |
-                 "sort"
+                 "sort" | "invoke"
 
 path = "[", [ path chunk { ",", path chunk } ], "]"
 

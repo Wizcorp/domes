@@ -110,6 +110,14 @@ Returns the reader's value so that serializing the reader to JSON is the same as
 
 #### Other
 
+**string reader.getAbsolutePath()**
+
+Returns the full path to this instance.
+
+**string reader.getRelativePath()**
+
+Returns the path to this instance measured from its parent dome.
+
 **reader.destroy()**
 
 Cleans out all data from the reader. If this reader is a child dome of another dome, writer or reader, this will have no
@@ -208,6 +216,12 @@ be provided.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort).
 
 #### Other
+
+**writer.invoke(string eventName, mixed data)**
+
+Emits `eventName` on the dome with `(string path, mixed data)` as arguments to listeners. The invocation will be part of
+the diff structure, making it possible to use this mechanism to emit events over a serialized connection between
+multiple domes. The event emission happens the moment you call `applyDiff` on your dome.
 
 **writer.destroy()**
 
