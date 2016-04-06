@@ -14,221 +14,148 @@ var OPT_NONE = 0;
 var OPT_ADD_DIFF = 1;
 var OPT_EMIT_CHANGE = 2;
 
-// operations
 
-var readonly = {
-	has: true,
-	get: true,
-	copy: true
-};
-
-// operations receive: parent: object/array, key: string, value: parent[key], args: array
-// in the case of read-only operations, the parent and value may be undefined
-
-var ops = {
-	has: function (parent, key) {
-		return parent ? parent.hasOwnProperty(key) : false;
-	},
-	get: function (parent, key, value, args) {
-		return parent && parent.hasOwnProperty(key) ? value : args[0];
-	},
-	copy: function (parent, key, value) {
-		return clone(value);
-	},
-	set: function (parent, key, value, args) {
-		parent[key] = args[0];
-		return args[0];
-	},
-	del: function (parent, key, value) {
-		if (Array.isArray(parent)) {
-			parent.splice(key, 1);
-		} else {
-			delete parent[key];
+function Path(path) {
+	if (Array.isArray(path)) {
+		this.str = Path.chunksToString(path);
+		this.chunks = path;
+	} else {
+		if (typeof path !== 'string') {
+			throw new TypeError('Path must be a string');
 		}
 
-		return value;
-	},
-	inc: function (parent, key, value, args) {
-		if (typeof value !== 'number') {
-			throw new TypeError('Cannot increment type "' + (typeof value) + '"');
-		}
-
-		var delta = args[0];
-
-		if (delta === undefined) {
-			delta = 1;
-		} else if (typeof delta !== 'number') {
-			throw new TypeError('Cannot increment by type "' + (typeof delta) + '"');
-		}
-
-		parent[key] += delta;
-		return parent[key];
-	},
-	dec: function (parent, key, value, args) {
-		if (typeof value !== 'number') {
-			throw new TypeError('Cannot decrement a type "' + (typeof value) + '"');
-		}
-
-		var delta = args[0];
-
-		if (delta === undefined) {
-			delta = 1;
-		} else if (typeof delta !== 'number') {
-			throw new TypeError('Cannot decrement by type "' + (typeof delta) + '"');
-		}
-
-		parent[key] -= delta;
-		return parent[key];
-	},
-	clear: function (parent, key, value) {
-		if (Array.isArray(value)) {
-			value.length = 0;
-		} else if (value !== null && typeof value === 'object') {
-			var keys = Object.keys(value);
-			for (var i = 0; i < keys.length; i += 1) {
-				delete value[keys[i]];
-			}
-		} else {
-			throw new TypeError('Can only clear objects and arrays');
-		}
-
-		return value;
-	},
-	append: function (parent, key, value, args) {
-		// appends all given args to an array or string
-		if (typeof value === 'string') {
-			value += args.join('');
-		} else if (Array.isArray(value)) {
-			value = value.concat(args);
-		} else {
-			throw new TypeError('Can only append to strings and arrays');
-		}
-
-		parent[key] = value;
-
-		return value;
-	},
-	fill: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only fill arrays');
-		}
-
-		return value.fill.apply(value, args);
-	},
-	push: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only push onto arrays');
-		}
-
-		return value.push.apply(value, args);
-	},
-	pop: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only pop from arrays');
-		}
-
-		return value.pop();
-	},
-	shift: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only shift from arrays');
-		}
-
-		return value.shift();
-	},
-	unshift: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only unshift to arrays');
-		}
-
-		return value.unshift.apply(value, args);
-	},
-	splice: function (parent, key, value, args) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only splice arrays');
-		}
-
-		return value.splice.apply(value, args);
-	},
-	reverse: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only reverse arrays');
-		}
-
-		return value.reverse();
-	},
-	sort: function (parent, key, value) {
-		if (!Array.isArray(value)) {
-			throw new TypeError('Can only sort arrays');
-		}
-
-		return value.sort();
+		this.str = path.trim();
+		this.chunks = this.str === '' ? [] : undefined;
 	}
-};
-
-
-function parsePath(path) {
-	var index, chunks = [];
-	var offset = 0;
-
-	while (offset < path.length) {
-		if (path[offset] === '[') {
-			// array element begins here
-
-			offset += 1;
-
-			index = path.indexOf(']', offset);
-			if (index === -1) {
-				throw new Error('Could not find closing "]" in path: ' + path);
-			}
-
-			chunks.push(parseInt(path.substring(offset, index), 10));
-			offset = index + 1;
-		} else {
-			// a period is optional at the start of the path or after an array element
-
-			if (path[offset] === '.') {
-				offset += 1;
-			}
-
-			// find "." or "["
-
-			index = offset;
-			while (index < path.length && path[index] !== '.' && path[index] !== '[') {
-				index += 1;
-			}
-
-			chunks.push(path.substring(offset, index));
-			offset = index;
-		}
-	}
-
-	return chunks;
 }
 
 
-function traverse(dome, opName, path, args, options) {
-	var oldValue;
+Path.chunksToString = function (chunks) {
+	var str = '';
 
-	var opFn = ops[opName];
-	if (!opFn) {
-		throw new Error('Operation not implemented: ' + opName);
+	for (var i = 0; i < chunks.length; i += 1) {
+		var chunk = chunks[i];
+
+		if (typeof chunk === 'string') {
+			if (i === 0) {
+				str += chunk;
+			} else {
+				str += '.' + chunk;
+			}
+		} else if (typeof chunk === 'number') {
+			str += '[' + chunk + ']';
+		}
 	}
 
-	if (typeof path !== 'string') {
-		throw new TypeError('Path must be a string');
+	return str;
+};
+
+Path.prototype.toString = function () {
+	return this.str;
+};
+
+Path.prototype.toJSON = function () {
+	return this.getChunks();
+};
+
+Path.prototype.append = function (str) {
+	if (Array.isArray(str)) {
+		str = new Path(str);
 	}
 
-	path = path.trim();
+	if (str instanceof Path) {
+		str = str.toString();
+	} else if (typeof str !== 'string') {
+		throw new TypeError('Can only append arrays and strings to paths');
+	}
 
-	var chunks = parsePath(path);
-	var isReadOnly = readonly[opName] ? true : false;
+	str = str.trim();
 
+	if (str.length === 0) {
+		// nothing is being appended
+		return this;
+	}
+
+	if (this.str.length === 0) {
+		// our current path is empty
+		return new Path(str);
+	}
+
+	if (str[0] === '[') {
+		// array notation can just be appended
+		return new Path(this.str + str);
+	}
+
+	// str starts with a property name
+	return new Path(this.str + '.' + str);
+};
+
+
+Path.prototype.getChunks = function () {
+	if (this.chunks) {
+		return this.chunks;
+	}
+
+	var STATE_NONE = 0, STATE_STR = 1, STATE_NUM = 2;
+
+	var str = this.str;
+	var len = str.length;
+	var chunks = [];
+
+	if (len === 0) {
+		this.chunks = chunks;
+		return chunks;
+	}
+
+	var state = str[0] === '[' ? STATE_NUM : STATE_STR;
+	var offset = str[0] === '[' ? 1 : 0;
+	var index = offset;
+
+	for (; offset < len; offset += 1) {
+		var char = str[offset];
+		var next = str[offset + 1];
+
+		if (state === STATE_NONE) {
+			if (char === '.') {
+				state = STATE_STR;
+			} else if (char === '[') {
+				state = STATE_NUM;
+			} else {
+				throw new Error('Unexpected character "' + char + '" at offset ' + offset + ' of path "' + str + '"');
+			}
+			index = offset + 1;
+		} else if (state === STATE_NUM) {
+			if (char < '0' || char > '9') {
+				throw new Error('Unexpected non-digit "' + char + '" at offset ' + offset + ' of path "' + str + '"');
+			}
+
+			if (next === ']') {
+				chunks.push(parseInt(str.substring(index, offset + 1), 10));
+				offset += 1;
+				state = STATE_NONE;
+			} else if (next === undefined) {
+				throw new Error('Unexpected end-of-string of path "' + str + '"');
+			}
+		} else if (state === STATE_STR) {
+			if (next === '.' || next === '[' || next === undefined) {
+				chunks.push(str.substring(index, offset + 1));
+				state = STATE_NONE;
+			}
+		}
+	}
+
+	// assign late, because exceptions may have been thrown
+	this.chunks = chunks;
+
+	return chunks;
+};
+
+
+function locate(dome, path, isReadOnly) {
+	var chunks = path.getChunks();
 	var parent = dome;
-	var key = 'target';
+	var key = 'value';
 	var value = parent[key];
-
-	// foo.bar
 
 	for (var i = 0; i < chunks.length; i += 1) {
 		var chunk = chunks[i];
@@ -259,104 +186,431 @@ function traverse(dome, opName, path, args, options) {
 		}
 	}
 
-	// check if we should emit changes or add to the diff
+	return {
+		parent: parent,
+		key: key
+	};
+}
 
-	var mustEmit =
-		(options & OPT_EMIT_CHANGE) !== 0 &&
-		(dome.listenerCount('change') !== 0 || dome.listenerCount('change:' + path) !== 0);
 
-	var mustDiff = (options & OPT_ADD_DIFF) !== 0;
+function Reader(dome, path, location) {
+	this.dome = dome; // the owning Dome (Dome)
+	this.path = path; // the path to this value (Path) relative to the owning Dome
+	this.parent = location.parent;  // may be undefined (Object|Array|undefined)
+	this.key = location.key;        // always defined (string)
+	this.value = this.parent && this.parent.hasOwnProperty(this.key) ? this.parent[this.key] : undefined;
+}
 
-	if (mustEmit) {
-		oldValue = clone(value);
+Reader.prototype.destroy = function () {
+	this.dome = undefined;
+	this.path = undefined;
+	this.parent = undefined;
+	this.key = undefined;
+	this.value = undefined;
+};
+
+Reader.prototype.read = function (path, fn) {
+	if (typeof path === 'function') {
+		fn = path;
+		path = null;
 	}
 
-	// store snapshots if they were queued up
-
-	if (!isReadOnly) {
-		dome._storeSnapshotsIfNeeded();
+	if (!(path instanceof Path)) {
+		path = new Path(path || '');
 	}
 
-	// run the operation, passing: parent, key, parent[key], args
-
-	var result = opFn(parent, key, value, args);
-
-	if (mustDiff) {
-		dome.addDiff(opName, path, clone(args));
+	// make path relative to dome
+	if (this !== this.dome) {
+		path = this.path.append(path);
 	}
 
-	// emit changes
+	var location = locate(this.dome, path, true);
+	var reader = new Reader(this.dome, path, location);
 
-	if (mustEmit) {
-		var newValue = parent ? parent[key] : undefined;
+	if (fn) {
+		fn(reader);
+	}
+
+	return reader;
+};
+
+Reader.prototype.toJSON = function () {
+	return this.value;
+};
+
+Reader.prototype.exists = function () {
+	return this.parent ? this.parent.hasOwnProperty(this.key) : false;
+};
+
+Reader.prototype.get = function (fallback) {
+	if (!this.parent || !this.parent.hasOwnProperty(this.key)) {
+		return fallback;
+	}
+
+	return this.value;
+};
+
+Reader.prototype.copy = function () {
+	return clone(this.get());
+};
+
+
+Object.defineProperty(Reader.prototype, 'length', {
+	get: function () {
+		if (!Array.isArray(this.value)) {
+			throw new TypeError('Only arrays have length');
+		}
+
+		return this.value.length;
+ 	}
+});
+
+
+function Writer(dome, path, location, options) {
+	Reader.call(this, dome, path, location);
+
+	this.oldValue = undefined; // used when emitting
+	this.options = options || OPT_NONE;
+
+	this.mustDiff = dome.diff && (this.options & OPT_ADD_DIFF) !== 0;
+	this.mustEmit = (this.options & OPT_EMIT_CHANGE) !== 0;
+}
+
+inherits(Writer, Reader);
+
+
+Writer.prototype.destroy = function () {
+	Reader.prototype.destroy.call(this);
+	this.oldValue = undefined;
+};
+
+
+Writer.prototype._pre = function () {
+	this.dome._storeSnapshotsIfNeeded();
+
+	if (this.mustEmit) {
+		this.oldValue = clone(this.value);
+	}
+};
+
+Writer.prototype._post = function (name, args, result) {
+	if (this.mustDiff) {
+		this.dome.addDiff(name, this.path, clone(args));
+	}
+
+	var newValue = this.parent[this.key];
+
+	if (this.mustEmit) {
 		var opData = {
-			op: opName,
+			op: name,
 			result: result
 		};
 
-		dome.emit('change', path, newValue, oldValue, opData);
-		dome.emit('change:' + path, newValue, oldValue, opData);
+		this.dome.invokeChange(this.path, newValue, this.oldValue, opData);
 	}
+
+	this.value = newValue;
 
 	return result;
-}
+};
+
+Writer.prototype.write = function (path, fn) {
+	if (typeof path === 'function') {
+		fn = path;
+		path = null;
+	}
+
+	if (!(path instanceof Path)) {
+		path = new Path(path || '');
+	}
+
+	// make path relative to dome
+	if (this !== this.dome) {
+		path = this.path.append(path);
+	}
+
+	var location = locate(this.dome, path, false);
+	var writer = new Writer(this.dome, path, location, this.options);
+
+	if (fn) {
+		fn(writer);
+	}
+
+	return writer;
+};
+
+Writer.prototype.set = function (value) {
+	this._pre();
+	this.parent[this.key] = value;
+	return this._post('set', [value], value);
+};
 
 
-function Dome(target) {
-	EventEmitter.call(this);
+Writer.prototype.del = function () {
+	this._pre();
+	delete this.parent[this.key];
+	return this._post('del', [], this.value);
+};
 
-	this.target = arguments.length >= 1 ? target : {};
+
+Writer.prototype.inc = function (delta) {
+	if (typeof this.value !== 'number') {
+		throw new TypeError('Cannot increment type "' + (typeof this.value) + '"');
+	}
+
+	if (delta === undefined) {
+		delta = 1;
+	} else if (typeof delta !== 'number') {
+		throw new TypeError('Cannot increment by type "' + (typeof delta) + '"');
+	}
+
+	this._pre();
+	this.parent[this.key] = this.value + delta;
+	return this._post('inc', [delta], this.value + delta);
+};
+
+
+Writer.prototype.dec = function (delta) {
+	if (typeof this.value !== 'number') {
+		throw new TypeError('Cannot decrement type "' + (typeof this.value) + '"');
+	}
+
+	if (delta === undefined) {
+		delta = 1;
+	} else if (typeof delta !== 'number') {
+		throw new TypeError('Cannot decrement by type "' + (typeof delta) + '"');
+	}
+
+	this._pre();
+	this.parent[this.key] = this.value - delta;
+	return this._post('dec', [delta], this.value - delta);
+};
+
+
+Writer.prototype.clear = function () {
+	this._pre();
+
+	if (Array.isArray(this.value)) {
+		this.value.length = 0;
+	} else if (this.value !== null && typeof this.value === 'object') {
+		var keys = Object.keys(this.value);
+		for (var i = 0; i < keys.length; i += 1) {
+			delete this.value[keys[i]];
+		}
+	} else {
+		throw new TypeError('Can only clear objects and arrays');
+	}
+
+	return this._post('clear', [], this.value);
+};
+
+
+Writer.prototype.append = function () {
+	// appends all given args to an array or string
+	var result;
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+
+	if (typeof this.value === 'string') {
+		result = this.value + args.join('');
+	} else if (Array.isArray(this.value)) {
+		result = this.value.concat(args);
+	} else {
+		throw new TypeError('Can only append to strings and arrays');
+	}
+
+	this.parent[this.key] = result;
+
+	return this._post('append', args, result);
+};
+
+
+Writer.prototype.fill = function (filler, start, end) {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only fill arrays');
+	}
+
+	if (start === undefined) {
+		start = 0;
+	} else if (typeof start === 'number') {
+		if (start < 0) {
+			start += this.value.length;
+		}
+
+		start = Math.max(start, 0);
+	} else {
+		throw new TypeError('start must be a number');
+	}
+
+	if (end === undefined) {
+		end = this.value.length;
+	} else if (typeof end === 'number') {
+		if (end < 0) {
+			end += this.value.length;
+		}
+
+		end = Math.min(end, this.value.length);
+	} else {
+		throw new TypeError('end must be a number');
+	}
+
+	this._pre();
+
+	for (var i = start; i < end; i += 1) {
+		this.value[i] = filler;
+	}
+
+	return this._post('fill', [filler, start, end], this.value);
+};
+
+
+Writer.prototype.push = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only push onto arrays');
+	}
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+	var result = this.value.push.apply(this.value, args);
+	return this._post('push', args, result);
+};
+
+
+Writer.prototype.pop = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only pop from arrays');
+	}
+
+	this._pre();
+	var result = this.value.pop();
+	return this._post('pop', [], result);
+};
+
+
+Writer.prototype.shift = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only shift from arrays');
+	}
+
+	this._pre();
+	var result = this.value.shift();
+	return this._post('shift', [], result);
+};
+
+
+Writer.prototype.unshift = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only unshift to arrays');
+	}
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+	var result = this.value.unshift.apply(this.value, args);
+	return this._post('unshift', args, result);
+};
+
+
+Writer.prototype.splice = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only splice arrays');
+	}
+
+	var len = arguments.length;
+	var args = new Array(len);
+	for (var i = 0; i < len; i += 1) {
+		args[i] = arguments[i];
+	}
+
+	this._pre();
+	var result = this.value.splice.apply(this.value, args);
+	return this._post('splice', args, result);
+};
+
+
+Writer.prototype.reverse = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only reverse arrays');
+	}
+
+	this._pre();
+	var result = this.value.reverse();
+	return this._post('reverse', [], result);
+};
+
+
+Writer.prototype.sort = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only sort arrays');
+	}
+
+	this._pre();
+	var result = this.value.sort();
+	return this._post('sort', [], result);
+};
+
+
+function Dome(value, path, options) {
+	this.value = value;
+
+	if (options === undefined) {
+		options = OPT_ADD_DIFF | OPT_EMIT_CHANGE;
+	}
+
 	this.snapshots = [];
 	this.lazySnapshots = 0;
-	this.diff = [];
+	this.diff = (options & OPT_ADD_DIFF) === 0 ? undefined : [];
+
+	Writer.call(this, this, path, { parent: this, key: 'value' }, options);
+	EventEmitter.call(this);
 }
 
-inherits(Dome, EventEmitter);
+inherits(Dome, Writer);
 
-
-Dome.joinPaths = function (a, b) {
-	if (b.length === 0) {
-		return a;
-	}
-
-	if (a.length === 0) {
-		return b;
-	}
-
-	if (b[0] === '[') {
-		// array notation can just be appended
-		return a + b;
-	}
-
-	// b starts with a property name
-	return a + '.' + b;
-};
-
-
-Dome.prototype.toJSON = function () {
-	return this.target;
-};
+Object.keys(EventEmitter.prototype).forEach(function (method) {
+	Dome.prototype[method] = EventEmitter.prototype[method];
+});
 
 
 Dome.prototype.destroy = function () {
+	Writer.prototype.destroy.call(this);
+
 	this.removeAllListeners();
-	this.target = undefined;
 	this.snapshots = undefined;
 	this.diff = undefined;
 };
 
 
 Dome.prototype.hasDiff = function () {
-	return this.diff.length > 0;
+	return this.diff ? this.diff.length > 0 : false;
 };
 
 
 Dome.prototype.peekDiff = function () {
-	return this.diff;
+	return this.diff || [];
 };
 
 
 Dome.prototype.extractDiff = function () {
+	if (!this.diff) {
+		return [];
+	}
+
 	var diff = this.diff;
 	this.diff = [];
 	return diff;
@@ -369,7 +623,14 @@ Dome.prototype.applyDiff = function (diff, silent) {
 	for (var i = 0; i < diff.length; i += 1) {
 		var item = diff[i];  // op-name, path, args
 
-		traverse(this, item[0], item[1], item[2], options);
+		var opName = item[0];
+		var path = new Path(item[1]);
+		var args = item[2];
+
+		var location = locate(this, path, false);
+		var writer = new Writer(this, path, location, options);
+
+		writer[opName].apply(writer, args);
 	}
 
 	diff.length = 0;
@@ -380,16 +641,26 @@ Dome.prototype.addDiff = function (opName, path, args) {
 	// in the case of a child emitting diffs while the parent is destroyed, this should be a no-op
 
 	if (this.diff) {
+		path = path.getChunks();
+
 		this.diff.push([opName, path, args]);
 		this.emit('diff', opName, path, args);
 	}
 };
 
 
+Dome.prototype.invokeChange = function (path, newValue, oldValue, opData) {
+	path = path.toString();
+
+	this.emit('change', path, newValue, oldValue, opData);
+	this.emit('change:' + path, newValue, oldValue, opData);
+};
+
+
 Dome.prototype._storeSnapshotsIfNeeded = function () {
 	if (this.lazySnapshots > 0) {
 		var snapshot = {
-			target: clone(this.target),
+			value: clone(this.value),
 			diff: clone(this.diff)
 		};
 
@@ -416,124 +687,49 @@ Dome.prototype.rollback = function () {
 			throw new Error('There are no snapshots to roll back to');
 		}
 
-		this.target = snapshot.target;
+		this.value = snapshot.value;
 		this.diff = snapshot.diff;
 	}
 };
 
 
 Dome.prototype.wrap = function (path) {
-	var client = new Dome(this.get(path));
-	var parent = this;
+	path = new Path(path);
 
-	client.on('diff', function (opName, subPath, args) {
-		parent.addDiff(opName, Dome.joinPaths(path, subPath), args);
+	var location = locate(this, path, true);
+	if (!location.parent) {
+		throw new Error('Path does not exist on dome: ' + path);
+	}
+
+	var that = this;
+	var child = new Dome(location.parent[location.key], path, this.options);
+
+	child.on('change', function (path, newValue, oldValue, opData) {
+		that.invokeChange(child.path.append(path), newValue, oldValue, opData);
 	});
 
-	client.on('change', function (subPath, newValue, oldValue, opData) {
-		var fullPath = Dome.joinPaths(path, subPath);
-
-		parent.emit('change', fullPath, newValue, oldValue, opData);
-		parent.emit('change:' + fullPath, newValue, oldValue, opData);
+	child.on('diff', function (name, path, args) {
+		that.addDiff(name, child.path.append(path), args);
 	});
 
-	return client;
+	return child;
 };
 
-Dome.prototype.has = function (path) {
-	return traverse(this, 'has', path, [], OPT_NONE);
-};
 
-Dome.prototype.get = function (path, fallback) {
-	return traverse(this, 'get', path, [fallback], OPT_NONE);
-};
+module.exports = function (value, options) {
+	var opts;
 
-Dome.prototype.copy = function (path) {
-	return traverse(this, 'copy', path, [], OPT_NONE);
-};
+	if (options) {
+		opts = OPT_NONE;
 
-Dome.prototype.set = function (path, value) {
-	return traverse(this, 'set', path, [clone(value)], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
+		if (options.hasOwnProperty('addDiff') && options.addDiff) {
+			opts |= OPT_ADD_DIFF;
+		}
 
-Dome.prototype.del = function (path) {
-	return traverse(this, 'del', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.inc = function (path, value) {
-	return traverse(this, 'inc', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.dec = function (path, value) {
-	return traverse(this, 'dec', path, [value], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.clear = function (path) {
-	return traverse(this, 'clear', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.append = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
+		if (options.hasOwnProperty('emitChanges') && options.emitChanges) {
+			opts |= OPT_EMIT_CHANGE;
+		}
 	}
 
-	return traverse(this, 'append', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.fill = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
-	}
-
-	return traverse(this, 'fill', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.push = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
-	}
-
-	return traverse(this, 'push', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.pop = function (path) {
-	return traverse(this, 'pop', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.shift = function (path) {
-	return traverse(this, 'shift', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.unshift = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
-	}
-
-	return traverse(this, 'unshift', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.splice = function (path) {
-	var args = new Array(arguments.length - 1);
-	for (var i = 1; i < arguments.length; i += 1) {
-		args[i - 1] = clone(arguments[i]);
-	}
-
-	return traverse(this, 'splice', path, args, OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.reverse = function (path) {
-	return traverse(this, 'reverse', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-Dome.prototype.sort = function (path) {
-	return traverse(this, 'sort', path, [], OPT_ADD_DIFF | OPT_EMIT_CHANGE);
-};
-
-
-module.exports = function (obj) {
-	return new Dome(obj);
+	return new Dome(value, new Path(''), opts);
 };

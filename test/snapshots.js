@@ -6,24 +6,31 @@ test('Snapshots', function (t) {
 
 	d.snapshot();
 
-	d.set('foo.hello', false);
-	t.deepEqual(d.target, { foo: { hello: false, world: true } }, 'Set successful');
-	t.equal(d.diff.length, 1, '1 diff entry');
+	d.write('foo.hello', function (w) {
+		w.set(false);
+		t.deepEqual(d.value, { foo: { hello: false, world: true } }, 'Set successful');
+		t.equal(d.diff.length, 1, '1 diff entry');
+	});
 
 	d.snapshot();
 	d.snapshot();
+	d.snapshot();
+	d.rollback();
 
-	d.set('foo.world', []);
-	t.deepEqual(d.target, { foo: { hello: false, world: [] } }, 'Set successful');
-	t.equal(d.diff.length, 2, '2 diff entries');
+	d.write('foo.world', function (w) {
+		w.set([]);
+		t.deepEqual(d.value, { foo: { hello: false, world: [] } }, 'Set successful');
+		t.equal(d.diff.length, 2, '2 diff entries');
+	});
 
 	d.rollback();
 	d.rollback();
-	t.deepEqual(d.target, { foo: { hello: false, world: true } }, 'Rollback successful');
+
+	t.deepEqual(d.value, { foo: { hello: false, world: true } }, 'Rollback successful');
 	t.equal(d.diff.length, 1, '1 diff entry');
 
 	d.rollback();
-	t.deepEqual(d.target, { foo: { hello: true, world: true } }, 'Rollback successful');
+	t.deepEqual(d.value, { foo: { hello: true, world: true } }, 'Rollback successful');
 	t.equal(d.diff.length, 0, 'No diffs');
 
 	t.throws(function () {

@@ -4,26 +4,29 @@ var dome = require('..');
 test('Array operations', function (t) {
 	var d = dome({ list: [] });
 
-	t.equal(d.push('list', 'hello', 'world'), 2, 'Pushed "hello" and "world"');
-	t.deepEqual(d.get('list'), ['hello', 'world'], 'Array matches');
-	t.equal(d.pop('list'), 'world', '"world" popped');
-	t.deepEqual(d.append('list', 'world'), ['hello', 'world'], 'Appended "world"');
+	d.write('list', function (w) {
+		t.equal(w.push('hello', 'world'), 2, 'Pushed "hello" and "world"');
+		t.deepEqual(w.get(), ['hello', 'world'], 'Array matches');
+		t.equal(w.pop(), 'world', '"world" popped');
+		t.deepEqual(w.append('world'), ['hello', 'world'], 'Appended "world"');
 
-	t.equal(d.shift('list'), 'hello', 'Shifted "hello" off');
-	t.deepEqual(d.get('list'), ['world'], 'Array matches');
-	t.equal(d.unshift('list', 'hello'), 2, 'Unshifted "hello"');
-	t.deepEqual(d.get('list'), ['hello', 'world'], 'Array matches');
+		t.equal(w.shift(), 'hello', 'Shifted "hello" off');
+		t.equal(w.length, 1, 'Array length is 1');
+		t.deepEqual(w.get(), ['world'], 'Array matches');
+		t.equal(w.unshift('hello'), 2, 'Unshifted "hello"');
+		t.deepEqual(w.get(), ['hello', 'world'], 'Array matches');
 
-	t.deepEqual(d.clear('list'), [], 'Array cleared');
-	t.deepEqual(d.append('list', 'hello', 'world'), ['hello', 'world'], 'Appended "hello" and "world"');
+		t.deepEqual(w.clear(), [], 'Array cleared');
+		t.deepEqual(w.append('hello', 'world'), ['hello', 'world'], 'Appended "hello" and "world"');
 
-	t.deepEqual(d.fill('list', true), [true, true], 'Filled with boolean true');
-	t.deepEqual(d.clear('list'), [], 'Array cleared');
+		t.deepEqual(w.fill(true), [true, true], 'Filled with boolean true');
+		t.deepEqual(w.clear(), [], 'Array cleared');
 
-	d.set('list', ['hello', 'removeme']);
-	t.deepEqual(d.splice('list', 1, 1, 'world'), ['removeme'], 'Removed "removeme" and added "world"');
-	t.deepEqual(d.reverse('list'), ['world', 'hello'], 'Reversed the array');
-	t.deepEqual(d.sort('list'), ['hello', 'world'], 'Sorted the array');
+		w.set(['hello', 'removeme']);
+		t.deepEqual(w.splice(1, 1, 'world'), ['removeme'], 'Removed "removeme" and added "world"');
+		t.deepEqual(w.reverse(), ['world', 'hello'], 'Reversed the array');
+		t.deepEqual(w.sort(), ['hello', 'world'], 'Sorted the array');
+	});
 
 	t.end();
 });

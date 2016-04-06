@@ -8,7 +8,7 @@ test('Destruction', function (t) {
 
 	d.destroy();
 
-	t.equal(d.target, undefined, '.target is undefined');
+	t.equal(d.value, undefined, '.value is undefined');
 	t.equal(d.snapshots, undefined, '.snapshots is undefined');
 	t.equal(d.diff, undefined, '.diff is undefined');
 	t.deepEqual(d.listeners('change'), [], 'Event listeners are gone');
