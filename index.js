@@ -21,22 +21,29 @@ function Operation(name, result) {
 }
 
 
-function Path(path) {
-	// a read only class
-
-	if (Array.isArray(path)) {
-		this.str = Path.chunksToString(path);
-		this.chunks = path;
-	} else {
-		if (typeof path !== 'string') {
-			throw new TypeError('Path must be a string');
-		}
-
-		this.str = path.trim();
-		this.chunks = this.str === '' ? [] : undefined;
-	}
+function Path(str, chunks) {
+	this._str = str;
+	this._chunks = chunks;
 }
 
+
+Path.fromString = function (str) {
+	if (typeof str !== 'string') {
+		throw new TypeError('Path must be a string');
+	}
+
+	str = str.trim();
+
+	return new Path(str, str.length === 0 ? [] : undefined);
+};
+
+Path.fromChunks = function (chunks) {
+	if (!Array.isArray(chunks)) {
+		throw new TypeError('Path must be an array');
+	}
+
+	return new Path(chunks.length === 0 ? '' : undefined, chunks);
+};
 
 Path.chunksToString = function (chunks) {
 	var str = '';
@@ -58,65 +65,12 @@ Path.chunksToString = function (chunks) {
 	return str;
 };
 
-Path.prototype.toString = function () {
-	return this.str;
-};
-
-Path.prototype.toJSON = function () {
-	return this.getChunks();
-};
-
-Path.prototype.append = function (str) {
-	if (Array.isArray(str)) {
-		str = new Path(str);
-	}
-
-	if (str instanceof Path) {
-		if (this.str.length === 0) {
-			// our current path is empty, so just return the provided subpath
-			return str;
-		}
-
-		str = str.toString();
-	} else if (typeof str !== 'string') {
-		throw new TypeError('Can only append arrays and strings to paths');
-	}
-
-	str = str.trim();
-
-	if (str.length === 0) {
-		// nothing is being appended
-		return this;
-	}
-
-	if (this.str.length === 0) {
-		// our current path is empty
-		return new Path(str);
-	}
-
-	if (str[0] === '[') {
-		// array notation can just be appended
-		return new Path(this.str + str);
-	}
-
-	// str starts with a property name
-	return new Path(this.str + '.' + str);
-};
-
-
-Path.prototype.getChunks = function () {
-	if (this.chunks) {
-		return this.chunks;
-	}
-
+Path.stringToChunks = function (str) {
 	var STATE_NONE = 0, STATE_STR = 1, STATE_NUM = 2;
-
-	var str = this.str;
 	var len = str.length;
 	var chunks = [];
 
 	if (len === 0) {
-		this.chunks = chunks;
 		return chunks;
 	}
 
@@ -157,10 +111,73 @@ Path.prototype.getChunks = function () {
 		}
 	}
 
-	// assign late, because exceptions may have been thrown
-	this.chunks = chunks;
-
 	return chunks;
+};
+
+Path.prototype.getChunks = function () {
+	if (this._chunks === undefined) {
+		this._chunks = Path.stringToChunks(this._str);
+	}
+
+	return this._chunks;
+};
+
+Path.prototype.getString = function () {
+	if (this._str === undefined) {
+		this._str = Path.chunksToString(this._chunks);
+	}
+
+	return this._str;
+}
+
+Path.prototype.toString = Path.prototype.getString;
+Path.prototype.toJSON = Path.prototype.getChunks;
+
+Path.prototype.isEmpty = function () {
+	if (this._str !== undefined) {
+		return this._str.length === 0;
+	}
+
+	return this._chunks.length === 0;
+};
+
+Path.prototype.append = function (path) {
+	if (path instanceof Path) {
+		if (this.isEmpty()) {
+			return path;
+		}
+
+		path = path.getString();
+	} else if (typeof path === 'string') {
+		if (this.isEmpty()) {
+			return Path.fromString(path);
+		}
+
+		path = path.trim();
+	} else if (Array.isArray(path)) {
+		if (this.isEmpty()) {
+			return Path.fromChunks(path);
+		}
+
+		path = Path.chunksToString(path);
+	} else {
+		throw new TypeError('Can only append arrays and strings to paths');
+	}
+
+	// path is now a string, and "this" is not an empty path
+
+	if (path.length === 0) {
+		// nothing is being appended
+		return this;
+	}
+
+	if (path[0] === '[') {
+		// array notation can just be appended
+		return Path.fromString(this.getString() + path);
+	}
+
+	// str starts with a property name
+	return Path.fromString(this.getString() + '.' + path);
 };
 
 
@@ -205,7 +222,7 @@ function locate(dome, path, isReadOnly) {
 	};
 }
 
-var emptyPath = new Path('');
+var emptyPath = Path.fromString('');
 
 
 function Children() {
@@ -306,11 +323,9 @@ Reader.prototype.destroy = function () {
 Reader.prototype.read = function (path, fn) {
 	if (typeof path === 'function') {
 		fn = path;
-		path = null;
-	}
-
-	if (!(path instanceof Path)) {
-		path = new Path(path || '');
+		path = emptyPath;
+	} else if (!(path instanceof Path)) {
+		path = Path.fromString(path || '');
 	}
 
 	// make path relative to parent dome
@@ -340,12 +355,12 @@ Reader.prototype.toJSON = function () {
 };
 
 Reader.prototype.getRelativePath = function (asObject) {
-	return asObject ? this.path : this.path.toString();
+	return asObject ? this.path : this.path.getString();
 };
 
 Reader.prototype.getAbsolutePath = function (asObject) {
 	var result = this.parentDome ? this.parentDome.getAbsolutePath(true).append(this.path) : this.path;
-	return asObject ? result : result.toString();
+	return asObject ? result : result.getString();
 };
 
 Reader.prototype.exists = function () {
@@ -436,21 +451,25 @@ Writer.prototype.invokeChange = function (path, newValue, oldValue, opData) {
 	}
 
 	if (this.emit) {
-		path = path.toString();
+		this.emit('change', path.getString(), newValue, oldValue, opData);
 
-		this.emit('change', path, newValue, oldValue, opData);
-		this.emit('change:' + path, newValue, oldValue, opData);
+		var chunks = path.getChunks();
+
+		for (var i = chunks.length; i > 0; i -= 1) {
+			var location = Path.fromChunks(chunks.slice(0, i)).getString();
+			var remainder = Path.fromChunks(chunks.slice(i)).getString();
+
+			this.emit('change:' + location, remainder, newValue, oldValue, opData);
+		}
 	}
 };
 
 Writer.prototype.write = function (path, fn) {
 	if (typeof path === 'function') {
 		fn = path;
-		path = null;
-	}
-
-	if (!(path instanceof Path)) {
-		path = new Path(path || '');
+		path = emptyPath;
+	} else if (!(path instanceof Path)) {
+		path = Path.fromString(path || '');
 	}
 
 	// make path relative to parent dome
@@ -476,7 +495,7 @@ Writer.prototype.write = function (path, fn) {
 };
 
 Writer.prototype.invoke = function (eventName, data) {
-	this.dome.emit(eventName, this.path.toString(), data);
+	this.dome.emit(eventName, this.path.getString(), data);
 
 	if ((this.options & OPT_ADD_DIFF) !== 0) {
 		this.addDiff('invoke', emptyPath, [eventName, clone(data)]);
@@ -740,7 +759,7 @@ Dome.prototype.destroy = function () {
 
 
 Dome.prototype.wrap = function (path) {
-	path = new Path(path);
+	path = Path.fromString(path);
 
 	var child = this.children.getDome(path);
 	if (child) {
@@ -790,7 +809,7 @@ Dome.prototype.applyDiff = function (diff, silent) {
 		var item = diff[i];  // op-name, path, args
 
 		var opName = item[0];
-		var path = new Path(item[1]);
+		var path = Path.fromChunks(item[1]);
 		var args = item[2];
 
 		var writer = this.write(path);
@@ -847,7 +866,7 @@ Dome.prototype.rollback = function () {
 		this.diff = snapshot.diff;
 
 		if ((this.options & OPT_EMIT_CHANGE) !== 0) {
-			this.invokeChange('', this.value, oldValue, new Operation('rollback', undefined));
+			this.invokeChange(emptyPath, this.value, oldValue, new Operation('rollback', undefined));
 		}
 	}
 };

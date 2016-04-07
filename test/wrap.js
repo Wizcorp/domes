@@ -8,10 +8,10 @@ test('Wrap', function (t) {
 
 	t.equal(d.wrap('child'), c, 'Wrapping the same path returns the same child dome');
 
-	var expChanged = { d: true, c: true, c2: true, dpath: true, cpath: true, c2path: true, count: 6 };
-	var changed = { d: false, c: false, c2: false, dpath: false, cpath: false, c2path: false, count: 0 };
-	var expDiffs = { d: true, c: true, c2: true, count: 3 };
-	var diffs = { d: false, c: false, c2: false, count: 0 };
+	var expChanged = { d: 1, c: 1, c2: 1, dpath: [1, 1, 1], cpath: [1, 1], c2path: [1] };
+	var changed = { d: 0, c: 0, c2: 0, dpath: [0, 0, 0], cpath: [0, 0], c2path: [0] };
+	var expDiffs = { d: 1, c: 1, c2: 1 };
+	var diffs = { d: 0, c: 0, c2: 0 };
 
 	// change events:
 
@@ -20,8 +20,7 @@ test('Wrap', function (t) {
 		t.equal(newValue, 'hello', 'Parent: emitted value is "hello"');
 		t.equal(oldValue, undefined, 'Parent: emitted old value is undefined');
 		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Parent: operation is correct');
-		changed.d = true;
-		changed.count += 1;
+		changed.d += 1;
 	});
 
 	c.on('change', function (path, newValue, oldValue, opData) {
@@ -29,8 +28,7 @@ test('Wrap', function (t) {
 		t.equal(newValue, 'hello', 'Child: emitted value is "hello"');
 		t.equal(oldValue, undefined, 'Child: emitted old value is undefined');
 		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Child: operation is correct');
-		changed.c = true;
-		changed.count += 1;
+		changed.c += 1;
 	});
 
 	c2.on('change', function (path, newValue, oldValue, opData) {
@@ -38,32 +36,55 @@ test('Wrap', function (t) {
 		t.equal(newValue, 'hello', 'Subchild: emitted value is "hello"');
 		t.equal(oldValue, undefined, 'Subchild: emitted old value is undefined');
 		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Subchild: operation is correct');
-		changed.c2 = true;
-		changed.count += 1;
+		changed.c2 += 1;
 	});
 
-	d.on('change:child.subchild.foo', function (newValue, oldValue, opData) {
+	d.on('change:child.subchild.foo', function (remainingPath, newValue, oldValue, opData) {
+		t.equal(remainingPath, '', 'Parent: remaining path is ""');
 		t.equal(newValue, 'hello', 'Parent: emitted value is "hello"');
 		t.equal(oldValue, undefined, 'Parent: emitted old value is undefined');
 		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Parent: operation is correct');
-		changed.dpath = true;
-		changed.count += 1;
+		changed.dpath[2] += 1;
 	});
 
-	c.on('change:subchild.foo', function (newValue, oldValue, opData) {
+	d.on('change:child.subchild', function (remainingPath, newValue, oldValue, opData) {
+		t.equal(remainingPath, 'foo', 'Parent: remaining path is "foo"');
+		t.equal(newValue, 'hello', 'Parent: emitted value is "hello"');
+		t.equal(oldValue, undefined, 'Parent: emitted old value is undefined');
+		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Parent: operation is correct');
+		changed.dpath[1] += 1;
+	});
+
+	d.on('change:child', function (remainingPath, newValue, oldValue, opData) {
+		t.equal(remainingPath, 'subchild.foo', 'Parent: remaining path is "subchild.foo"');
+		t.equal(newValue, 'hello', 'Parent: emitted value is "hello"');
+		t.equal(oldValue, undefined, 'Parent: emitted old value is undefined');
+		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Parent: operation is correct');
+		changed.dpath[0] += 1;
+	});
+
+	c.on('change:subchild.foo', function (remainingPath, newValue, oldValue, opData) {
+		t.equal(remainingPath, '', 'Child: remaining path is ""');
 		t.equal(newValue, 'hello', 'Child: emitted value is "hello"');
 		t.equal(oldValue, undefined, 'Child: emitted old value is undefined');
 		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Child: operation is correct');
-		changed.cpath = true;
-		changed.count += 1;
+		changed.cpath[1] += 1;
 	});
 
-	c2.on('change:foo', function (newValue, oldValue, opData) {
+	c.on('change:subchild', function (remainingPath, newValue, oldValue, opData) {
+		t.equal(remainingPath, 'foo', 'Child: remaining path is "foo"');
+		t.equal(newValue, 'hello', 'Child: emitted value is "hello"');
+		t.equal(oldValue, undefined, 'Child: emitted old value is undefined');
+		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Child: operation is correct');
+		changed.cpath[0] += 1;
+	});
+
+	c2.on('change:foo', function (remainingPath, newValue, oldValue, opData) {
+		t.equal(remainingPath, '', 'Subchild: remaining path is ""');
 		t.equal(newValue, 'hello', 'Subchild: emitted value is "hello"');
 		t.equal(oldValue, undefined, 'Subchild: emitted old value is undefined');
 		t.deepEqual(opData, { op: 'set', result: 'hello' }, 'Subchild: operation is correct');
-		changed.c2path = true;
-		changed.count += 1;
+		changed.c2path[0] += 1;
 	});
 
 	// diff events:
@@ -73,8 +94,7 @@ test('Wrap', function (t) {
 		t.deepEqual(path, ['child', 'subchild', 'foo'], 'Parent: path is ["child", "subchild", "foo"]');
 		t.equal(args.length, 1, 'Parent: 1 argument was passed to "set"');
 		t.equal(args[0], 'hello', 'Parent: Argument passed is "hello"');
-		diffs.d = true;
-		diffs.count += 1;
+		diffs.d += 1;
 	});
 
 	c.on('diff', function (opName, path, args) {
@@ -82,8 +102,7 @@ test('Wrap', function (t) {
 		t.deepEqual(path, ['subchild', 'foo'], 'Child: path is ["subchild", "foo"]');
 		t.equal(args.length, 1, 'Child: 1 argument was passed to "set"');
 		t.equal(args[0], 'hello', 'Child: Argument passed is "hello"');
-		diffs.c = true;
-		diffs.count += 1;
+		diffs.c += 1;
 	});
 
 	c2.on('diff', function (opName, path, args) {
@@ -91,8 +110,7 @@ test('Wrap', function (t) {
 		t.deepEqual(path, ['foo'], 'Subchild: path is ["foo"]');
 		t.equal(args.length, 1, 'Subchild: 1 argument was passed to "set"');
 		t.equal(args[0], 'hello', 'Subchild: Argument passed is "hello"');
-		diffs.c2 = true;
-		diffs.count += 1;
+		diffs.c2 += 1;
 	});
 
 	c2.write('foo').set('hello');

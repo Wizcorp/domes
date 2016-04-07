@@ -275,12 +275,15 @@ Rolls back to the last snapshot. You can call this method as often as you have c
 
 The value at the given path has changed, and its value has changed from `oldValue` to `newValue`. The `operationData`
 object has the properties `string op` (the operation name, eg: `"set"`) and `mixed result` (the return value of the
-operation).
+operation). This event will fire on the dome owning the path, and all its parent domes, with the path normalized to that
+dome.
 
-**"change:path" (mixed newValue, mixed oldValue, object operationData)**
+**"change:PATH" (string remainderPath, mixed newValue, mixed oldValue, object operationData)**
 
-Here, `path` in `"change:path"` is the actual path that changed. This allows you to listen for changes at very specific
-locations. The arguments you receive are the same as with the `change` event.
+This is a tricky, but powerful event. With every change that occurs, the dome and its parent domes will emit this event
+multiple times with a different value for `PATH`. The path that is emitted as a postfix to `change:` starts as the
+full path to the changed value, and will be reduced by 1 element until empty. As the `PATH` shrinks, the `remainderPath`
+argument grows. It points to the path you would have to follow from `PATH` to get to the value that changed.
 
 **"diff" (string opName, string path, array args)**
 
