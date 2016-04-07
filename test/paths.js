@@ -2,6 +2,7 @@ var test = require('tape');
 var dome = require('..');
 
 test('Path reading', function (t) {
+	/*eslint dot-notation: 0*/
 	var o = { foo: { bar: { foo: { bar: [{ foo: { bar: {} } }] } } } };
 
 	var domes = {};
