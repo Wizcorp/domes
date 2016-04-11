@@ -209,10 +209,18 @@ More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScrip
 Reverses the array at the writer's path in place, then returns the array.
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/reverse).
 
-**array writer.sort()**
+**array writer.reposition(array moves)**
+
+Given an array "moves" that contains for each index the new index a value should receive, will move all elements of an
+array accordingly. The moves array could for example be `[1, 0]` meaning "at index 0, should be the value that is
+currently at index 1, and at index 1 should be the value that is currently at index 0". In effect, this example would
+swap the first two elements. When it has repositioned the elements, it returns the array.
+
+**array writer.sort([Function compare])**
 
 Sorts the array at the writer's path in place, then returns the array. At this time, a custom compare function cannot
-be provided.
+be provided. Because sorting will be executed by JavaScript and the optional compare function, the diff generated will
+be a "reposition" diff (see the method above).
 More information [at MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort).
 
 #### Other

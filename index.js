@@ -9,6 +9,24 @@ function inherits(Child, Parent) {
 	});
 }
 
+function isEqual(a, b) {
+	return a === b || (Number.isNaN(a) && Number.isNaN(b));
+}
+
+function indexOf(list, value) {
+	// NaN safe indexOf
+
+	for (var i = 0; i < list.length; i += 1) {
+		var elm = list[i];
+
+		if (elm === value || (Number.isNaN(elm) && Number.isNaN(value))) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
 
 var OPT_NONE = 0;
 var OPT_ADD_DIFF = 1;
@@ -295,7 +313,7 @@ function Reader(parentDome, dome, path) {
 	this.path = path;                // the path to this value (Path) relative to the owning Dome
 	this.parent = undefined;         // (Object|Array|undefined)
 	this.key = undefined;            // (string)
-	this.value = undefined;
+	this.value = undefined;          // (mixed)
 }
 
 Reader.prototype.loadValue = function () {
@@ -503,6 +521,10 @@ Writer.prototype.invoke = function (eventName, data) {
 };
 
 Writer.prototype.set = function (value) {
+	if (this.exists() && isEqual(this.value, value)) {
+		return value;
+	}
+
 	this._pre();
 	this.parent[this.key] = value;
 	return this._post('set', [value], value);
@@ -510,6 +532,10 @@ Writer.prototype.set = function (value) {
 
 
 Writer.prototype.del = function () {
+	if (!this.parent.hasOwnProperty(this.key)) {
+		return undefined;
+	}
+
 	this._pre();
 	delete this.parent[this.key];
 	return this._post('del', [], this.value);
@@ -551,12 +577,20 @@ Writer.prototype.dec = function (delta) {
 
 
 Writer.prototype.clear = function () {
-	this._pre();
-
 	if (Array.isArray(this.value)) {
+		if (this.value.length === 0) {
+			return this.value;
+		}
+
+		this._pre();
 		this.value.length = 0;
 	} else if (this.value !== null && typeof this.value === 'object') {
 		var keys = Object.keys(this.value);
+		if (keys.length === 0) {
+			return this.value;
+		}
+
+		this._pre();
 		for (var i = 0; i < keys.length; i += 1) {
 			delete this.value[keys[i]];
 		}
@@ -716,15 +750,62 @@ Writer.prototype.reverse = function () {
 	return this._post('reverse', [], result);
 };
 
+Writer.prototype.reposition = function (moves) {
+	// positions [n, n2, n3, n4] where the index is the original position and the value is the new position index
 
-Writer.prototype.sort = function () {
+	if (!Array.isArray(this.value)) {
+		throw new TypeError('Can only reposition arrays');
+	}
+
+	if (!Array.isArray(moves)) {
+		throw new TypeError('Can only reposition using a moves-array');
+	}
+
+	this._pre();
+
+	var oldValue = this.value.slice();
+
+	for (var i = 0; i < moves.length; i += 1) {
+		this.value[i] = oldValue[moves[i]];
+	}
+
+	return this._post('reposition', [moves], this.value);
+};
+
+Writer.prototype.sort = function (fn) {
 	if (!Array.isArray(this.value)) {
 		throw new TypeError('Can only sort arrays');
 	}
 
 	this._pre();
-	var result = this.value.sort();
-	return this._post('sort', [], result);
+
+	var i, len = this.value.length;
+
+	var oldValue = new Array(len);
+	var moves = new Array(len);   // the index in this array is the old index, the value is the new index
+
+	for (i = 0; i < len; i += 1) {
+		moves[i] = i;
+		oldValue[i] = this.value[i];
+	}
+
+	this.value.sort(fn);
+
+	var noValue = {};  // a unique object reference that cannot exist in this.value
+
+	for (i = 0; i < len; i += 1) {
+		// find old index for value at this.value[i]
+
+		var index = indexOf(oldValue, this.value[i]);
+		if (index === -1) {
+			throw new Error('Sorting went horribly wrong');
+		}
+
+		moves[index] = i;
+		oldValue[index] = noValue;
+	}
+
+	return this._post('reposition', [moves], this.value);
 };
 
 
