@@ -77,7 +77,7 @@ Writer will therefore also directly apply to your dome instances.
 If you don't want to keep diffs or emit change events, you can optimize the behavior of your dome by passing in options:
 
 ```js
-var d = dome(myObject, { addDiff: false, emitChanges: false });
+var d = dome(myObject, { addDiff: false, emitChange: false });
 ```
 
 

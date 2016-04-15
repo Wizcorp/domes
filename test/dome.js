@@ -2,7 +2,7 @@ var test = require('tape');
 var dome = require('..');
 
 test('Dome manipulation', function (t) {
-	var d = dome([], { emitChanges: false, addDiff: false });
+	var d = dome([], { emitChange: false, addDiff: false });
 
 	var changes = 0;
 
@@ -23,7 +23,7 @@ test('Dome manipulation', function (t) {
 	d.destroy();
 
 	changes = 0;
-	d = dome([], { emitChanges: true, addDiff: true });
+	d = dome([], { emitChange: true, addDiff: true });
 	d.on('change', function () {
 		changes += 1;
 	});
